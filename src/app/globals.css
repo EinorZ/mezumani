@@ -1,0 +1,269 @@
+@import "bootstrap/dist/css/bootstrap.rtl.min.css";
+
+body {
+  font-family: var(--font-rubik), sans-serif;
+  background-color: #f8f9fa;
+  margin: 0;
+  overflow: hidden;
+}
+
+input[type="number"] {
+  direction: ltr;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.card-green-gradient {
+  background: linear-gradient(135deg, #198754 0%, #20c997 100%);
+  color: white;
+  border: none;
+}
+
+.card-teal-gradient {
+  background: linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%);
+  color: white;
+  border: none;
+}
+
+/* App layout: sidebar right + main left (RTL) */
+.app-layout {
+  display: flex;
+  height: 100vh;
+  flex-direction: row-reverse;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 48px;
+  min-width: 48px;
+  height: 100vh;
+  background-color: #ffffff;
+  border-left: 1px solid #dee2e6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 200ms ease, min-width 200ms ease;
+}
+
+.sidebar:hover {
+  width: 240px;
+  min-width: 240px;
+}
+
+.sidebar-header {
+  padding: 1rem;
+  border-bottom: 1px solid #dee2e6;
+  white-space: nowrap;
+}
+
+.sidebar-nav,
+.sidebar-footer {
+  white-space: nowrap;
+}
+
+.sidebar-icon {
+  display: inline;
+  font-size: 1.2rem;
+}
+
+.sidebar-text {
+  margin-right: 0.25rem;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.sidebar:hover .sidebar-text {
+  opacity: 1;
+}
+
+.sidebar .sidebar-nav,
+.sidebar .sidebar-footer {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.sidebar:hover .sidebar-nav,
+.sidebar:hover .sidebar-footer {
+  opacity: 1;
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+}
+
+.sidebar-footer {
+  border-top: 1px solid #dee2e6;
+  padding: 0.5rem 0;
+}
+
+/* Year group */
+.year-group {
+  margin-bottom: 0.25rem;
+}
+
+.year-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #212529;
+  text-align: right;
+}
+
+.year-toggle:hover {
+  background-color: #f8f9fa;
+}
+
+.year-arrow {
+  font-size: 0.65rem;
+  color: #6c757d;
+}
+
+.year-content {
+  padding-right: 0.5rem;
+}
+
+/* Sidebar links */
+.sidebar-link {
+  display: block;
+  padding: 0.35rem 1.5rem;
+  font-size: 0.85rem;
+  color: #495057;
+  text-decoration: none;
+  border-right: 2px solid transparent;
+  transition:
+    background-color 150ms,
+    border-color 150ms;
+}
+
+.sidebar-link:hover {
+  background-color: #f8f9fa;
+  color: #212529;
+}
+
+.sidebar-link.active {
+  font-weight: 600;
+  color: #198754;
+  border-right-color: #198754;
+  background-color: #f0fdf4;
+}
+
+.sidebar-section-label {
+  padding: 0.5rem 1.5rem 0.2rem;
+  font-size: 0.7rem;
+  color: #adb5bd;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Month navigation arrows */
+.month-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  color: #6c757d;
+  text-decoration: none;
+  transition: background-color 150ms, color 150ms;
+}
+
+.month-nav-btn:hover {
+  background-color: #f0f0f0;
+  color: #212529;
+}
+
+.month-nav-btn.disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Main content */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  height: 100vh;
+}
+
+/* Transaction list */
+.tx-header {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.tx-header-col {
+  font-size: 0.8rem;
+  color: #6c757d;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tx-row {
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 150ms;
+  cursor: pointer;
+}
+
+.tx-row:hover {
+  background-color: #fafafa;
+}
+
+.tx-row-edit {
+  background-color: #f0f7ff;
+  cursor: default;
+}
+
+.tx-row-edit:hover {
+  background-color: #f0f7ff;
+}
+
+.tx-row-add {
+  background-color: #f8fdf8;
+  border-bottom: 2px solid #e9ecef;
+  cursor: default;
+}
+
+.tx-row-add:hover {
+  background-color: #f8fdf8;
+}
+
+.tx-row-add .form-control,
+.tx-row-add .form-control:focus,
+.tx-row-edit .form-control,
+.tx-row-edit .form-control:focus {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.tx-row-vacation {
+  background-color: #f8f9fa;
+}
+
+.tx-row-vacation:hover {
+  background-color: #f0f1f2;
+}
