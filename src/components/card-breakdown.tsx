@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { formatCurrency } from "@/lib/utils";
 
-interface CardAmount {
+export interface CardAmount {
   card: string;
   amount: number;
 }
 
-interface OwnerGroup {
+export interface OwnerGroup {
   owner: string;
   label: string;
   color: string;
@@ -16,7 +16,7 @@ interface OwnerGroup {
   total: number;
 }
 
-interface Props {
+export interface Props {
   groups: OwnerGroup[];
 }
 

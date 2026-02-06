@@ -17,7 +17,7 @@ import {
 } from "@/lib/utils";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
-import { CardBreakdown } from "@/components/card-breakdown";
+import { CardBreakdown, type OwnerGroup } from "@/components/card-breakdown";
 
 interface MonthPageProps {
   params: Promise<{ id: string }>;
@@ -67,10 +67,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
       {/* Month nav */}
       <div className="d-flex align-items-center gap-2 mb-4">
         {prevSheet ? (
-          <Link
-            href={`/month/${prevSheet.sheetId}`}
-            className="month-nav-btn"
-          >
+          <Link href={`/month/${prevSheet.sheetId}`} className="month-nav-btn">
             &#8250;
           </Link>
         ) : (
@@ -78,10 +75,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
         )}
         <h1 className="h4 fw-bold mb-0 mx-1">{title}</h1>
         {nextSheet ? (
-          <Link
-            href={`/month/${nextSheet.sheetId}`}
-            className="month-nav-btn"
-          >
+          <Link href={`/month/${nextSheet.sheetId}`} className="month-nav-btn">
             &#8249;
           </Link>
         ) : (
@@ -137,7 +131,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
               <h3 className="h6 fw-bold mb-3">לפי כרטיס</h3>
               <CardBreakdown
                 groups={(["shared", "einor", "ziv"] as const)
-                  .map((owner) => {
+                  .map((owner): OwnerGroup | null => {
                     const ownerCards = cardsByOwner.get(owner);
                     if (!ownerCards?.length) return null;
                     return {
@@ -148,7 +142,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
                       total: ownerCards.reduce((s, c) => s + c.amount, 0),
                     };
                   })
-                  .filter(Boolean)}
+                  .filter((group): group is OwnerGroup => group !== null)}
               />
             </div>
           )}
