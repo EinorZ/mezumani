@@ -6,6 +6,7 @@ export interface Transaction {
   category: string;
   card: string;
   notes: string;
+  tentative?: boolean;
 }
 
 export interface TransactionInput {
@@ -15,6 +16,8 @@ export interface TransactionInput {
   category: string;
   card: string;
   notes: string;
+  updateExisting?: boolean;
+  tentative?: boolean;
 }
 
 export interface SummaryCard {
@@ -24,7 +27,7 @@ export interface SummaryCard {
 
 export interface MonthSummary {
   total: number;
-  cards: { label: string; amount: number }[];
+  cards: { label: string; amount: number; count: number }[];
 }
 
 export interface CategoryBreakdown {
@@ -76,6 +79,25 @@ export interface CategoryItem {
   color: string;
 }
 
+export interface RecurringExpense {
+  name: string;
+  amount: number;
+  category: string;
+  card: string;
+  keywords: string;
+  tentative?: boolean;
+}
+
+export interface CategoryMapping {
+  expenseName: string;
+  category: string;
+}
+
+export interface ExpenseRenameRule {
+  keywords: string; // pipe-separated keywords, e.g. "שופרסל|רמי לוי|סופר"
+  targetName: string; // renamed expense, e.g. "סופרמרקט"
+}
+
 export interface AppConfig {
   monthlyCategories: CategoryItem[];
   vacationCategories: CategoryItem[];
@@ -83,6 +105,9 @@ export interface AppConfig {
   cardsZiv: string[];
   cardsShared: string[];
   summaryCards: SummaryCard[];
+  recurringExpenses: RecurringExpense[];
+  categoryMappings: CategoryMapping[];
+  expenseRenameRules: ExpenseRenameRule[];
 }
 
 export interface VacationMonthRow {
@@ -96,6 +121,8 @@ export interface VacationData {
   title: string;
   transactions: Transaction[];
   total: number;
+  totalWithoutFlights: number;
+  countWithoutFlights: number;
   categories: CategoryBreakdown[];
   monthBreakdown: { month: string; amount: number }[];
 }

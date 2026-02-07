@@ -26,17 +26,39 @@ input[type="number"]::-webkit-inner-spin-button {
   border: none;
 }
 
-.card-teal-gradient {
+.card-blue-gradient {
   background: linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%);
   color: white;
   border: none;
+}
+
+.card-purple-gradient {
+  background: linear-gradient(135deg, #6f42c1 0%, #d63384 100%);
+  color: white;
+  border: none;
+}
+
+.card-orange-gradient {
+  background: linear-gradient(135deg, #fd7e14 0%, #ffc107 100%);
+  color: white;
+  border: none;
+}
+
+.summary-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
 }
 
 /* App layout: sidebar right + main left (RTL) */
 .app-layout {
   display: flex;
   height: 100vh;
-  flex-direction: row-reverse;
 }
 
 /* Sidebar */
@@ -52,7 +74,8 @@ input[type="number"]::-webkit-inner-spin-button {
   transition: width 200ms ease, min-width 200ms ease;
 }
 
-.sidebar:hover {
+.sidebar:hover,
+.sidebar.pinned {
   width: 240px;
   min-width: 240px;
 }
@@ -61,6 +84,8 @@ input[type="number"]::-webkit-inner-spin-button {
   padding: 1rem;
   border-bottom: 1px solid #dee2e6;
   white-space: nowrap;
+  gap: 0.25rem;
+  position: relative;
 }
 
 .sidebar-nav,
@@ -68,9 +93,28 @@ input[type="number"]::-webkit-inner-spin-button {
   white-space: nowrap;
 }
 
-.sidebar-icon {
-  display: inline;
-  font-size: 1.2rem;
+.sidebar-logo {
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+.sidebar-hamburger {
+  display: block;
+  color: #495057;
+}
+
+.sidebar-expanded-only {
+  display: none;
+}
+
+.sidebar:hover .sidebar-hamburger,
+.sidebar.pinned .sidebar-hamburger {
+  display: none;
+}
+
+.sidebar:hover .sidebar-expanded-only,
+.sidebar.pinned .sidebar-expanded-only {
+  display: block;
 }
 
 .sidebar-text {
@@ -79,8 +123,38 @@ input[type="number"]::-webkit-inner-spin-button {
   transition: opacity 200ms ease;
 }
 
-.sidebar:hover .sidebar-text {
+.sidebar:hover .sidebar-text,
+.sidebar.pinned .sidebar-text {
   opacity: 1;
+}
+
+/* Pin button */
+.sidebar-pin-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.9rem;
+  color: #6c757d;
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  opacity: 0;
+  transition: opacity 200ms ease, color 150ms ease;
+  margin-right: auto;
+}
+
+.sidebar:hover .sidebar-pin-btn,
+.sidebar.pinned .sidebar-pin-btn {
+  opacity: 1;
+}
+
+.sidebar-pin-btn:hover {
+  color: #198754;
+}
+
+.sidebar-pin-btn.active {
+  color: #198754;
 }
 
 .sidebar .sidebar-nav,
@@ -90,7 +164,9 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 
 .sidebar:hover .sidebar-nav,
-.sidebar:hover .sidebar-footer {
+.sidebar:hover .sidebar-footer,
+.sidebar.pinned .sidebar-nav,
+.sidebar.pinned .sidebar-footer {
   opacity: 1;
 }
 
@@ -171,29 +247,23 @@ input[type="number"]::-webkit-inner-spin-button {
   letter-spacing: 0.5px;
 }
 
-/* Month navigation arrows */
-.month-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  font-size: 1.1rem;
-  color: #6c757d;
-  text-decoration: none;
-  transition: background-color 150ms, color 150ms;
+.sidebar-add-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #adb5bd;
+  line-height: 1;
+  padding: 0 0.25rem;
+  border-radius: 4px;
+  transition: color 150ms, background-color 150ms;
 }
 
-.month-nav-btn:hover {
-  background-color: #f0f0f0;
-  color: #212529;
+.sidebar-add-btn:hover {
+  color: #198754;
+  background-color: #f0fdf4;
 }
 
-.month-nav-btn.disabled {
-  opacity: 0.3;
-  pointer-events: none;
-}
 
 /* Main content */
 .main-content {
@@ -202,12 +272,24 @@ input[type="number"]::-webkit-inner-spin-button {
   height: 100vh;
 }
 
+/* Page header */
+.page-header {
+  padding: 1rem 0;
+  border-bottom: 2px solid #e9ecef;
+}
+
 /* Transaction list */
+.tx-header,
+.tx-row {
+  position: relative;
+}
+
 .tx-header {
   display: flex;
   align-items: center;
   padding: 0.5rem 0.75rem;
   border-bottom: 2px solid #e9ecef;
+  transition: padding-inline-start 120ms ease;
 }
 
 .tx-header-col {
@@ -223,12 +305,59 @@ input[type="number"]::-webkit-inner-spin-button {
   align-items: center;
   padding: 0.6rem 0.75rem;
   border-bottom: 1px solid #f0f0f0;
-  transition: background 150ms;
+  transition: background 150ms, padding-inline-start 120ms ease;
   cursor: pointer;
 }
 
 .tx-row:hover {
   background-color: #fafafa;
+}
+
+/* Overlay checkbox — positioned at the inline-start (right in RTL) edge */
+.tx-check-overlay {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Show on row hover */
+.tx-row:hover > .tx-check-overlay,
+.tx-header:hover > .tx-check-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Always show when any row is selected */
+.tx-row.tx-has-selection > .tx-check-overlay,
+.tx-row.tx-row-selected > .tx-check-overlay,
+.tx-header.tx-has-selection > .tx-check-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Header checkbox always visible when there is a selection */
+.tx-check-header {
+  /* same positioning as row overlays */
+}
+
+/* Shift row content when checkbox overlay is visible to prevent overlap.
+   Exclude add/edit rows which have no checkboxes. */
+.tx-row:not(.tx-row-add):not(.tx-row-edit):hover,
+.tx-row.tx-has-selection,
+.tx-row.tx-row-selected,
+.tx-header:hover,
+.tx-header.tx-has-selection {
+  padding-inline-start: 36px;
+  padding-inline-end: 0.75rem;
 }
 
 .tx-row-edit {
@@ -260,10 +389,226 @@ input[type="number"]::-webkit-inner-spin-button {
   outline: none;
 }
 
+.tx-row-selected {
+  background-color: #e8f0fe;
+}
+
+.tx-row-selected:hover {
+  background-color: #d4e4fc;
+}
+
+.tx-row .form-check-input,
+.tx-header .form-check-input {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  border-color: #adb5bd;
+}
+
+.tx-row .form-check-input:checked,
+.tx-header .form-check-input:checked {
+  border-color: #0d6efd;
+}
+
+.tx-bulk-bar {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 2px solid #e9ecef;
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  z-index: 10;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+}
+
 .tx-row-vacation {
   background-color: #f8f9fa;
 }
 
 .tx-row-vacation:hover {
   background-color: #f0f1f2;
+}
+
+/* ── Tentative amounts ── */
+.tx-amount-tentative {
+  color: #c2770e;
+  font-style: italic;
+}
+.tx-amount-tentative::before {
+  content: "~";
+  margin-inline-end: 2px;
+  font-style: normal;
+}
+.tx-row-tentative {
+  background-color: rgba(194, 119, 14, 0.04);
+}
+.tx-row-tentative:hover {
+  background-color: rgba(194, 119, 14, 0.08);
+}
+.tentative-prefix {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 0.95rem;
+  color: #ccc;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 150ms ease;
+  flex-shrink: 0;
+}
+.tentative-prefix:hover { color: #c2770e; }
+.tentative-prefix.active { color: #c2770e; font-weight: 700; }
+
+/* ── Settings page ── */
+
+.settings-group {
+  margin-bottom: 2rem;
+}
+
+.settings-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.settings-group-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.settings-group-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #6c757d;
+  letter-spacing: 0.3px;
+}
+
+.settings-group-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .settings-group-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Section card */
+.settings-section {
+  --section-accent: #dee2e6;
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  border-inline-start: 3px solid var(--section-accent);
+  overflow: hidden;
+  transition: box-shadow 200ms ease;
+}
+
+.settings-section:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* Section header button */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(248, 249, 250, 0.7),
+    rgba(255, 255, 255, 0)
+  );
+  cursor: pointer;
+  text-align: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.settings-section-header:hover {
+  background: rgba(248, 249, 250, 0.9);
+}
+
+.settings-section-title-area {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.settings-section-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.settings-section-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #212529;
+  display: block;
+}
+
+.settings-section-desc {
+  font-size: 0.75rem;
+  color: #8c939a;
+  display: block;
+  margin-top: 1px;
+  font-weight: 400;
+}
+
+.settings-section-arrow {
+  font-size: 0.6rem;
+  color: #adb5bd;
+  transition: transform 250ms ease;
+  flex-shrink: 0;
+}
+
+/* Animated body */
+.settings-section-body {
+  overflow: hidden;
+  transition: max-height 300ms ease;
+}
+
+.settings-section-content {
+  padding: 0 1rem 1rem;
+}
+
+/* Quick action card (special style for vacation form) */
+.settings-quick-action {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.settings-quick-action-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.settings-quick-action-body {
+  flex: 1;
+}
+
+.settings-quick-action-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 0.5rem;
 }

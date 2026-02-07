@@ -18,8 +18,21 @@ import {
   addSummaryCardItem,
   removeSummaryCardItem,
   updateSummaryCardItem,
+  addRecurringExpense,
+  updateRecurringExpense,
+  removeRecurringExpense,
+  reorderRecurringExpenses,
+  batchImportTransactions,
+  addCategoryMapping,
+  updateCategoryMapping,
+  removeCategoryMapping,
+  addExpenseRenameRule,
+  updateExpenseRenameRule,
+  removeExpenseRenameRule,
+  batchUpdateFields,
+  batchToggleTentativeFlag,
 } from "./google-sheets";
-import type { TransactionInput } from "./types";
+import type { TransactionInput, RecurringExpense, Transaction } from "./types";
 
 export async function addTransaction(
   sheetTitle: string,
@@ -28,10 +41,10 @@ export async function addTransaction(
   const values = [
     data.date,
     data.expense,
-    String(data.amount),
+    data.tentative ? "" : String(data.amount),
     data.category,
     data.card,
-    data.notes,
+    data.tentative ? String(data.amount) : "",
   ];
   const row = await appendTransaction(sheetTitle, values);
   return row;
@@ -45,10 +58,10 @@ export async function editTransaction(
   const values = [
     data.date,
     data.expense,
-    String(data.amount),
+    data.tentative ? "" : String(data.amount),
     data.category,
     data.card,
-    data.notes,
+    data.tentative ? String(data.amount) : "",
   ];
   await updateTransaction(sheetTitle, row, values);
 }
@@ -149,6 +162,99 @@ export async function updateSummaryCard(
   revalidatePath("/settings");
 }
 
+// ---- Recurring expense actions ----
+
+export async function addRecurring(
+  name: string,
+  amount: number,
+  category: string,
+  card: string,
+  keywords: string = "",
+  tentative: boolean = false,
+) {
+  await addRecurringExpense(name, amount, category, card, keywords, tentative);
+  revalidatePath("/settings");
+}
+
+export async function updateRecurring(
+  oldName: string,
+  name: string,
+  amount: number,
+  category: string,
+  card: string,
+  keywords: string = "",
+  tentative: boolean = false,
+) {
+  await updateRecurringExpense(
+    oldName,
+    name,
+    amount,
+    category,
+    card,
+    keywords,
+    tentative,
+  );
+  revalidatePath("/settings");
+}
+
+export async function removeRecurring(name: string) {
+  await removeRecurringExpense(name);
+  revalidatePath("/settings");
+}
+
+export async function reorderRecurring(items: RecurringExpense[]) {
+  await reorderRecurringExpenses(items);
+  revalidatePath("/settings");
+}
+
+// ---- Category mapping actions ----
+
+export async function addCategoryMappingAction(
+  expenseNames: string | string[],
+  category: string,
+) {
+  await addCategoryMapping(expenseNames, category);
+  revalidatePath("/settings");
+}
+
+export async function updateCategoryMappingAction(
+  oldExpenseName: string,
+  expenseName: string,
+  category: string,
+) {
+  await updateCategoryMapping(oldExpenseName, expenseName, category);
+  revalidatePath("/settings");
+}
+
+export async function removeCategoryMappingAction(expenseName: string) {
+  await removeCategoryMapping(expenseName);
+  revalidatePath("/settings");
+}
+
+// ---- Expense rename rule actions ----
+
+export async function addExpenseRenameRuleAction(
+  targetName: string,
+  keywords: string,
+) {
+  await addExpenseRenameRule(targetName, keywords);
+  revalidatePath("/settings");
+}
+
+export async function updateExpenseRenameRuleAction(
+  oldTargetName: string,
+  targetName: string,
+  keywords: string,
+) {
+  await updateExpenseRenameRule(oldTargetName, targetName, keywords);
+  revalidatePath("/settings");
+}
+
+export async function removeExpenseRenameRuleAction(targetName: string) {
+  await removeExpenseRenameRule(targetName);
+  revalidatePath("/settings");
+}
+
 // ---- Vacation actions ----
 
 export async function createVacation(name: string, yearSuffix: number) {
@@ -165,10 +271,10 @@ export async function addVacationTransaction(
   const values = [
     data.date,
     data.expense,
-    String(data.amount),
+    data.tentative ? "" : String(data.amount),
     data.card, // D = card
     data.category, // E = category
-    data.notes,
+    data.tentative ? String(data.amount) : "",
   ];
   const row = await appendTransaction(sheetTitle, values);
   return row;
@@ -183,10 +289,10 @@ export async function editVacationTransaction(
   const values = [
     data.date,
     data.expense,
-    String(data.amount),
+    data.tentative ? "" : String(data.amount),
     data.card, // D = card
     data.category, // E = category
-    data.notes,
+    data.tentative ? String(data.amount) : "",
   ];
   await updateTransaction(sheetTitle, row, values);
 }
@@ -196,6 +302,47 @@ export async function deleteVacationTransaction(
   row: number,
 ) {
   await clearTransaction(sheetTitle, row);
+}
+
+// ---- Bulk edit ----
+
+export async function bulkEditTransactions(
+  sheetTitle: string,
+  updates: { row: number; category?: string; card?: string }[],
+) {
+  await batchUpdateFields(sheetTitle, false, updates);
+}
+
+export async function bulkEditVacationTransactions(
+  sheetTitle: string,
+  updates: { row: number; category?: string; card?: string }[],
+) {
+  await batchUpdateFields(sheetTitle, true, updates);
+}
+
+// ---- Bulk delete ----
+
+export async function bulkDeleteTransactions(
+  sheetTitle: string,
+  rows: number[],
+) {
+  await Promise.all(rows.map((row) => clearTransaction(sheetTitle, row)));
+}
+
+export async function bulkDeleteVacationTransactions(
+  sheetTitle: string,
+  rows: number[],
+) {
+  await Promise.all(rows.map((row) => clearTransaction(sheetTitle, row)));
+}
+
+// ---- Batch import ----
+
+export async function addTransactionsBatch(
+  sheetTitle: string,
+  transactions: TransactionInput[],
+): Promise<number> {
+  return batchImportTransactions(sheetTitle, transactions);
 }
 
 // ---- Debounced revalidation (called by client) ----
@@ -220,4 +367,22 @@ export async function ensureCurrentSheetsAction() {
     revalidatePath("/");
   }
   return created;
+}
+
+// ---- Bulk tentative toggle ----
+
+export async function bulkToggleTentative(
+  sheetTitle: string,
+  rows: number[],
+  tentative: boolean,
+) {
+  await batchToggleTentativeFlag(sheetTitle, rows, tentative);
+}
+
+export async function bulkToggleVacationTentative(
+  sheetTitle: string,
+  rows: number[],
+  tentative: boolean,
+) {
+  await batchToggleTentativeFlag(sheetTitle, rows, tentative);
 }

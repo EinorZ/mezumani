@@ -1,12 +1,9 @@
-import Link from "next/link";
 import { HEBREW_MONTHS } from "@/lib/constants";
-import type { AnnualData, SheetInfo } from "@/lib/types";
+import type { AnnualData } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 interface Props {
   data: AnnualData;
-  yearSuffix: number;
-  sheets: SheetInfo[];
 }
 
 function formatCell(value: number | null): string {
@@ -14,31 +11,18 @@ function formatCell(value: number | null): string {
   return formatCurrency(value);
 }
 
-export function AnnualTable({ data, yearSuffix, sheets }: Props) {
+export function AnnualTable({ data }: Props) {
   return (
     <div className="table-responsive">
       <table className="table table-sm table-bordered table-hover align-middle mb-0">
         <thead className="table-light">
           <tr>
             <th className="position-sticky start-0 bg-light">קטגוריה</th>
-            {HEBREW_MONTHS.map((month) => {
-              const title = `${month} ${yearSuffix}`;
-              const sheet = sheets.find((s) => s.title === title);
-              return (
-                <th key={month} className="text-center">
-                  {sheet ? (
-                    <Link
-                      href={`/month/${sheet.sheetId}`}
-                      className="text-decoration-none text-dark"
-                    >
-                      {month}
-                    </Link>
-                  ) : (
-                    month
-                  )}
-                </th>
-              );
-            })}
+            {HEBREW_MONTHS.map((month) => (
+              <th key={month} className="text-center">
+                {month}
+              </th>
+            ))}
             <th className="text-center">ממוצע</th>
             <th className="text-center">סה&quot;כ</th>
             <th className="text-center">%</th>

@@ -1,5 +1,6 @@
-import { getAnnualData, listSheets } from "@/lib/google-sheets";
-import { AnnualTable } from "@/components/annual-table";
+import { getAnnualData, getAppConfig } from "@/lib/google-sheets";
+import { buildCategoryColorMap, getCategoryNames } from "@/lib/utils";
+import { AnnualDashboard } from "@/components/annual-dashboard";
 
 interface YearPageProps {
   params: Promise<{ year: string }>;
@@ -8,18 +9,25 @@ interface YearPageProps {
 export default async function YearPage({ params }: YearPageProps) {
   const { year } = await params;
   const yearSuffix = parseInt(year, 10);
-  const [data, sheets] = await Promise.all([
+  const [data, config] = await Promise.all([
     getAnnualData(yearSuffix),
-    listSheets(),
+    getAppConfig(),
   ]);
 
-  return (
-    <div className="container-fluid px-4 py-3">
-      <h1 className="h4 fw-bold mb-4">סיכום שנתי 20{yearSuffix}</h1>
+  const colorMap = buildCategoryColorMap(
+    config.monthlyCategories,
+    config.vacationCategories,
+  );
+  const categories = getCategoryNames(config.monthlyCategories);
+  const vacationCategories = ["חול", "חופשה"];
 
-      <div className="card rounded-3 border p-3">
-        <AnnualTable data={data} yearSuffix={yearSuffix} sheets={sheets} />
-      </div>
-    </div>
+  return (
+    <AnnualDashboard
+      data={data}
+      colorMap={colorMap}
+      categories={categories}
+      vacationCategories={vacationCategories}
+      yearSuffix={yearSuffix}
+    />
   );
 }

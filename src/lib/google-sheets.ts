@@ -13,6 +13,9 @@ import type {
   SheetInfo,
   VacationData,
   VacationMonthRow,
+  RecurringExpense,
+  CategoryMapping,
+  ExpenseRenameRule,
 } from "./types";
 import {
   SETTINGS_SHEET_NAME,
@@ -23,6 +26,12 @@ import {
   SETTINGS_RANGE_CARDS_SHARED,
   SETTINGS_RANGE_SUMMARY_LABELS,
   SETTINGS_RANGE_SUMMARY_CATEGORIES,
+  SETTINGS_RANGE_RECURRING_NAMES,
+  SETTINGS_RANGE_RECURRING_DATA,
+  SETTINGS_RANGE_CATEGORY_MAP_NAMES,
+  SETTINGS_RANGE_CATEGORY_MAP_CATEGORIES,
+  SETTINGS_RANGE_RENAME_RULE_NAMES,
+  SETTINGS_RANGE_RENAME_RULE_KEYWORDS,
   DEFAULT_CATEGORY_COLOR,
   HEBREW_MONTHS,
 } from "./constants";
@@ -52,6 +61,7 @@ export async function listSheets() {
     fields: "sheets.properties.sheetId,sheets.properties.title",
   });
 
+  console.log(res.data.sheets);
   return (
     res.data.sheets?.map((s) =>
       classifySheet(s.properties?.sheetId ?? 0, s.properties?.title ?? ""),
@@ -112,31 +122,40 @@ export async function getMonthlyData(
 
   const rawTransactions = res.data.values ?? [];
   const transactions: Transaction[] = rawTransactions
-    .map((row, idx) => ({
-      row: idx + 2,
-      date: row[0] ?? "",
-      expense: row[1] ?? "",
-      amount: parseNumber(row[2]),
-      category: row[3] ?? "",
-      card: row[4] ?? "",
-      notes: row[5] ?? "",
-    }))
+    .map((row, idx) => {
+      const rawF = row[5] ?? "";
+      const confirmedAmount = parseNumber(row[2]);
+      const tentativeAmount = parseNumber(rawF);
+      const tentative = !confirmedAmount && tentativeAmount > 0;
+      return {
+        row: idx + 2,
+        date: row[0] ?? "",
+        expense: row[1] ?? "",
+        amount: tentative ? tentativeAmount : confirmedAmount,
+        category: row[3] ?? "",
+        card: row[4] ?? "",
+        notes: tentativeAmount > 0 ? "" : rawF,
+        tentative: tentative || undefined,
+      };
+    })
     .filter((t) => t.date || t.expense || t.amount);
 
-  // Compute summary from transactions
-  const total = transactions.reduce((s, t) => s + t.amount, 0);
+  // Compute summary from transactions (exclude tentative)
+  const confirmedTransactions = transactions.filter((t) => !t.tentative);
+  const total = confirmedTransactions.reduce((s, t) => s + t.amount, 0);
   const summaryCardResults = summaryCards.map((sc) => {
     const catSet = new Set(sc.categories);
-    const amount = transactions
-      .filter((t) => catSet.has(t.category))
-      .reduce((s, t) => s + t.amount, 0);
-    return { label: sc.label, amount };
+    const matching = confirmedTransactions.filter((t) =>
+      catSet.has(t.category),
+    );
+    const amount = matching.reduce((s, t) => s + t.amount, 0);
+    return { label: sc.label, amount, count: matching.length };
   });
   const summary: MonthSummary = { total, cards: summaryCardResults };
 
-  // Category breakdown
+  // Category breakdown (exclude tentative)
   const catMap = new Map<string, number>();
-  for (const t of transactions) {
+  for (const t of confirmedTransactions) {
     if (t.category) {
       catMap.set(t.category, (catMap.get(t.category) ?? 0) + t.amount);
     }
@@ -145,9 +164,9 @@ export async function getMonthlyData(
     .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount);
 
-  // Card breakdown
+  // Card breakdown (exclude tentative)
   const cardMap = new Map<string, number>();
-  for (const t of transactions) {
+  for (const t of confirmedTransactions) {
     if (t.card) {
       cardMap.set(t.card, (cardMap.get(t.card) ?? 0) + t.amount);
     }
@@ -203,11 +222,6 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
 
     monthData.set(monthIndex, catMap);
   }
-
-  // Active month indices (which months have data)
-  const activeMonthIndices = monthlySheets
-    .map((s) => s.monthIndex ?? 0)
-    .filter((idx) => monthData.has(idx));
 
   // Grand total across all months
   let grandTotal = 0;
@@ -282,25 +296,18 @@ export async function findFirstEmptyRow(title: string): Promise<number> {
 }
 
 /**
- * Append a transaction after the last non-empty row using the Sheets append API.
- * This is safe for concurrent calls — Sheets handles the row allocation.
+ * Append a transaction after the last non-empty row.
+ * Uses findFirstEmptyRow + update to write to exact columns A-F,
+ * avoiding the append API which can misdetect table boundaries
+ * when summary formulas exist in other columns.
  */
 export async function appendTransaction(
   title: string,
   values: string[],
 ): Promise<number> {
-  const sheets = getSheets();
-  const res = await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${title}'!A2:F`,
-    valueInputOption: "USER_ENTERED",
-    insertDataOption: "OVERWRITE",
-    requestBody: { values: [values] },
-  });
-  // Extract the actual row from the updatedRange (e.g. "'Sheet'!A15:F15")
-  const updatedRange = res.data.updates?.updatedRange ?? "";
-  const match = updatedRange.match(/!A(\d+):/);
-  return match ? parseInt(match[1], 10) : 2;
+  const row = await findFirstEmptyRow(title);
+  await updateTransaction(title, row, values);
+  return row;
 }
 
 /**
@@ -317,6 +324,224 @@ export async function updateTransaction(
     range: `'${title}'!A${row}:F${row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [values] },
+  });
+}
+
+/**
+ * Find the row number of an existing transaction by expense name.
+ * Returns the sheet row number (1-based) or null if not found.
+ */
+export async function findTransactionRowByExpense(
+  title: string,
+  expenseName: string,
+): Promise<number | null> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${title}'!B2:B`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if ((values[i]?.[0] ?? "").trim() === expenseName.trim()) {
+      return i + 2; // row number (1-based, data starts at row 2)
+    }
+  }
+  return null;
+}
+
+/**
+ * Import multiple transactions in batch (minimal API calls).
+ * - Fetches existing expense names once to find recurring rows to update.
+ * - Uses batchUpdate for existing rows and a single append for new rows.
+ */
+export async function batchImportTransactions(
+  title: string,
+  transactions: {
+    date: string;
+    expense: string;
+    amount: number;
+    category: string;
+    card: string;
+    notes: string;
+    updateExisting?: boolean;
+  }[],
+): Promise<number> {
+  if (transactions.length === 0) return 0;
+  const sheets = getSheets();
+
+  const hasUpdates = transactions.some((t) => t.updateExisting);
+
+  // Only fetch existing names if we have recurring rows to update
+  const existingRows: { name: string; card: string; row: number }[] = [];
+  if (hasUpdates) {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${title}'!B2:E`,
+    });
+    const rows = res.data.values ?? [];
+    for (let i = 0; i < rows.length; i++) {
+      const name = (rows[i]?.[0] ?? "").trim();
+      const card = (rows[i]?.[3] ?? "").trim(); // column E (index 3 relative to B)
+      if (name) existingRows.push({ name, card, row: i + 2 });
+    }
+  }
+
+  // Find existing row for a recurring expense: exact match first, then partial match
+  function findExistingRow(expense: string, card: string): number | undefined {
+    const trimmed = expense.trim();
+    const lower = trimmed.toLowerCase();
+    // Exact name match
+    const exact = existingRows.find((r) => r.name === trimmed);
+    if (exact) return exact.row;
+    // Partial match: existing name contains import name or vice versa, prefer same card
+    const partialSameCard = existingRows.find(
+      (r) =>
+        r.card === card &&
+        (r.name.toLowerCase().includes(lower) ||
+          lower.includes(r.name.toLowerCase())),
+    );
+    if (partialSameCard) return partialSameCard.row;
+    const partialAnyCard = existingRows.find(
+      (r) =>
+        r.name.toLowerCase().includes(lower) ||
+        lower.includes(r.name.toLowerCase()),
+    );
+    if (partialAnyCard) return partialAnyCard.row;
+    return undefined;
+  }
+
+  // Split: recurring with updateExisting try to find existing row, regular always append
+  const updateData: { range: string; values: string[][] }[] = [];
+  const appendRows: string[][] = [];
+
+  for (const data of transactions) {
+    const values = [
+      data.date,
+      data.expense,
+      String(data.amount),
+      data.category,
+      data.card,
+      data.notes,
+    ];
+    const existingRow = data.updateExisting
+      ? findExistingRow(data.expense, data.card)
+      : undefined;
+    if (existingRow) {
+      updateData.push({
+        range: `'${title}'!A${existingRow}:F${existingRow}`,
+        values: [values],
+      });
+    } else {
+      appendRows.push(values);
+    }
+  }
+
+  // Batch update existing rows in one call
+  if (updateData.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: updateData.map((d) => ({ range: d.range, values: d.values })),
+      },
+    });
+  }
+
+  // Append all new rows using explicit row positions
+  if (appendRows.length > 0) {
+    const startRow = await findFirstEmptyRow(title);
+    const data = appendRows.map((row, i) => ({
+      range: `'${title}'!A${startRow + i}:F${startRow + i}`,
+      values: [row],
+    }));
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+
+  return transactions.length;
+}
+
+/**
+ * Batch-update only category and/or card fields for multiple rows.
+ * Uses a single batchUpdate API call.
+ * Monthly: category=col D, card=col E.
+ * Vacation: category=col E, card=col D (swapped).
+ */
+export async function batchUpdateFields(
+  title: string,
+  isVacation: boolean,
+  updates: { row: number; category?: string; card?: string }[],
+): Promise<void> {
+  if (updates.length === 0) return;
+  const sheets = getSheets();
+
+  const data: { range: string; values: string[][] }[] = [];
+  for (const u of updates) {
+    if (u.category !== undefined) {
+      const col = isVacation ? "E" : "D";
+      data.push({ range: `'${title}'!${col}${u.row}`, values: [[u.category]] });
+    }
+    if (u.card !== undefined) {
+      const col = isVacation ? "D" : "E";
+      data.push({ range: `'${title}'!${col}${u.row}`, values: [[u.card]] });
+    }
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data,
+    },
+  });
+}
+
+/**
+ * Batch-toggle the tentative flag by moving amounts between C and F.
+ * Make tentative: move C → F, clear C.
+ * Confirm: move F → C, clear F.
+ */
+export async function batchToggleTentativeFlag(
+  title: string,
+  rows: number[],
+  tentative: boolean,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const sheets = getSheets();
+
+  // Read C and F for all rows
+  const ranges = rows.flatMap((r) => [`'${title}'!C${r}`, `'${title}'!F${r}`]);
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: SPREADSHEET_ID,
+    ranges,
+  });
+  const valueRanges = res.data.valueRanges ?? [];
+
+  const data: { range: string; values: string[][] }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const cVal = valueRanges[i * 2]?.values?.[0]?.[0] ?? "";
+    const fVal = valueRanges[i * 2 + 1]?.values?.[0]?.[0] ?? "";
+
+    if (tentative && parseNumber(cVal) > 0) {
+      // Move C → F, clear C
+      data.push({ range: `'${title}'!C${rows[i]}`, values: [[""]] });
+      data.push({ range: `'${title}'!F${rows[i]}`, values: [[cVal]] });
+    } else if (!tentative && parseNumber(fVal) > 0) {
+      // Move F → C, clear F
+      data.push({ range: `'${title}'!C${rows[i]}`, values: [[fVal]] });
+      data.push({ range: `'${title}'!F${rows[i]}`, values: [[""]] });
+    }
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
   });
 }
 
@@ -374,7 +599,7 @@ export async function createMonthSheet(
         // Headers
         {
           range: `'${sheetTitle}'!A1:F1`,
-          values: [["תאריך", "הוצאה", "כמה", "קטגוריה", "כרטיס", "הערות"]],
+          values: [["תאריך", "הוצאה", "כמה", "קטגוריה", "כרטיס", "משוער"]],
         },
         // Summary labels and formulas
         {
@@ -437,6 +662,9 @@ export async function createMonthSheet(
       cardsZiv: [],
       cardsShared: [],
       summaryCards: [],
+      recurringExpenses: [],
+      categoryMappings: [],
+      expenseRenameRules: [],
     };
   }
   const categoryValues = config.monthlyCategories.map((c) => c.name);
@@ -523,6 +751,24 @@ export async function createMonthSheet(
     } catch {
       // Annual sheet might not exist yet, that's OK
     }
+  }
+
+  // Auto-populate recurring expenses
+  if (config.recurringExpenses.length > 0) {
+    const recurringRows = config.recurringExpenses.map((exp) => [
+      "",
+      exp.name,
+      exp.tentative ? "" : exp.amount ? String(exp.amount) : "",
+      exp.category,
+      exp.card,
+      exp.tentative && exp.amount ? String(exp.amount) : "",
+    ]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${sheetTitle}'!A2:F${recurringRows.length + 1}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: recurringRows },
+    });
   }
 }
 
@@ -685,7 +931,7 @@ export async function ensureSettingsSheet(): Promise<void> {
   // Seed with headers only — categories will be synced from existing sheets
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!A1:G1`,
+    range: `'${SETTINGS_SHEET_NAME}'!A1:M1`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [
@@ -697,6 +943,12 @@ export async function ensureSettingsSheet(): Promise<void> {
           "כרטיסי משותף",
           "כרטיסי סיכום",
           "קטגוריות לסיכום",
+          "הוצאה קבועה",
+          "פרטים",
+          "שם הוצאה (מיפוי)",
+          "קטגוריה (מיפוי)",
+          "שם חדש (מיפוי)",
+          "מילות מפתח",
         ],
       ],
     },
@@ -722,6 +974,12 @@ export async function getAppConfig(): Promise<AppConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CARDS_SHARED}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_SUMMARY_LABELS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_SUMMARY_CATEGORIES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RECURRING_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RECURRING_DATA}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CATEGORY_MAP_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CATEGORY_MAP_CATEGORIES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RENAME_RULE_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RENAME_RULE_KEYWORDS}`,
     ],
   });
 
@@ -757,6 +1015,47 @@ export async function getAppConfig(): Promise<AppConfig> {
     });
   }
 
+  // Parse recurring expenses from H (names) and I (data)
+  const recurringNames = extractStrings(7);
+  const recurringDataRows = (valueRanges[8]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const recurringExpenses: RecurringExpense[] = recurringNames.map(
+    (name, i) => {
+      const data = recurringDataRows[i] ?? "";
+      const [amountStr, category, card, keywords, tentativeStr] =
+        data.split("|");
+      return {
+        name,
+        amount: parseNumber(amountStr ?? ""),
+        category: category ?? "",
+        card: card ?? "",
+        keywords: keywords ?? "",
+        tentative: tentativeStr === "1" || undefined,
+      };
+    },
+  );
+
+  // Parse category mappings from J (names) and K (categories)
+  const mapNames = extractStrings(9);
+  const mapCategories = extractStrings(10);
+  const categoryMappings: CategoryMapping[] = mapNames
+    .map((expenseName, i) => ({
+      expenseName,
+      category: mapCategories[i] ?? "",
+    }))
+    .filter((m) => m.category);
+
+  // Parse expense rename rules from L (target names) and M (keywords)
+  const renameTargetNames = extractStrings(11);
+  const renameKeywords = extractStrings(12);
+  const expenseRenameRules: ExpenseRenameRule[] = renameTargetNames
+    .map((targetName, i) => ({
+      targetName,
+      keywords: renameKeywords[i] ?? "",
+    }))
+    .filter((r) => r.keywords);
+
   return {
     monthlyCategories: extractCategories(0),
     vacationCategories: extractCategories(1),
@@ -764,6 +1063,9 @@ export async function getAppConfig(): Promise<AppConfig> {
     cardsZiv: extractStrings(3),
     cardsShared: extractStrings(4),
     summaryCards,
+    recurringExpenses,
+    categoryMappings,
+    expenseRenameRules,
   };
 }
 
@@ -947,6 +1249,296 @@ export async function updateSummaryCardItem(
 }
 
 /**
+ * Add a recurring expense to the first empty row in H+I columns.
+ */
+export async function addRecurringExpense(
+  name: string,
+  amount: number,
+  category: string,
+  card: string,
+  keywords: string = "",
+  tentative: boolean = false,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
+  });
+  const values = res.data.values ?? [];
+  let emptyRow = 2;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]?.trim()) {
+      emptyRow = i + 2;
+      break;
+    }
+    emptyRow = i + 3;
+  }
+
+  const dataStr = `${amount || ""}|${category}|${card}|${keywords}|${tentative ? "1" : ""}`;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H${emptyRow}:I${emptyRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[name, dataStr]] },
+  });
+}
+
+/**
+ * Update a recurring expense by finding the old name and overwriting H+I.
+ */
+export async function updateRecurringExpense(
+  oldName: string,
+  name: string,
+  amount: number,
+  category: string,
+  card: string,
+  keywords: string = "",
+  tentative: boolean = false,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === oldName) {
+      const dataStr = `${amount || ""}|${category}|${card}|${keywords}|${tentative ? "1" : ""}`;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!H${i + 2}:I${i + 2}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[name, dataStr]] },
+      });
+      return;
+    }
+  }
+}
+
+/**
+ * Remove a recurring expense by finding and clearing the matching H+I cells.
+ */
+export async function removeRecurringExpense(name: string): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === name) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!H${i + 2}:I${i + 2}`,
+      });
+      return;
+    }
+  }
+}
+
+/**
+ * Reorder recurring expenses by rewriting all H+I rows.
+ */
+export async function reorderRecurringExpenses(
+  items: RecurringExpense[],
+): Promise<void> {
+  const sheets = getSheets();
+
+  // Clear existing data
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H2:I100`,
+  });
+
+  if (items.length === 0) return;
+
+  // Write in new order
+  const rows = items.map((exp) => [
+    exp.name,
+    `${exp.amount || ""}|${exp.category}|${exp.card}|${exp.keywords}|${exp.tentative ? "1" : ""}`,
+  ]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!H2:I${rows.length + 1}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: rows },
+  });
+}
+
+/**
+ * Add one or more category mappings starting at the first empty row in J+K columns.
+ */
+export async function addCategoryMapping(
+  expenseNames: string | string[],
+  category: string,
+): Promise<void> {
+  const names = Array.isArray(expenseNames) ? expenseNames : [expenseNames];
+  if (names.length === 0) return;
+
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
+  });
+  const values = res.data.values ?? [];
+  let emptyRow = 2;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]?.trim()) {
+      emptyRow = i + 2;
+      break;
+    }
+    emptyRow = i + 3;
+  }
+
+  const rows = names.map((name) => [name, category]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!J${emptyRow}:K${emptyRow + rows.length - 1}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: rows },
+  });
+}
+
+/**
+ * Update a category mapping by finding the old expense name and overwriting J+K.
+ */
+export async function updateCategoryMapping(
+  oldExpenseName: string,
+  expenseName: string,
+  category: string,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === oldExpenseName) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!J${i + 2}:K${i + 2}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[expenseName, category]] },
+      });
+      return;
+    }
+  }
+}
+
+/**
+ * Remove a category mapping by finding and clearing the matching J+K cells.
+ */
+export async function removeCategoryMapping(
+  expenseName: string,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === expenseName) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!J${i + 2}:K${i + 2}`,
+      });
+      return;
+    }
+  }
+}
+
+/**
+ * Add an expense rename rule to the first empty row in L+M columns.
+ */
+export async function addExpenseRenameRule(
+  targetName: string,
+  keywords: string,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
+  });
+  const values = res.data.values ?? [];
+  let emptyRow = 2;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]?.trim()) {
+      emptyRow = i + 2;
+      break;
+    }
+    emptyRow = i + 3;
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L${emptyRow}:M${emptyRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[targetName, keywords]] },
+  });
+}
+
+/**
+ * Update an expense rename rule by finding the old target name and overwriting L+M.
+ */
+export async function updateExpenseRenameRule(
+  oldTargetName: string,
+  targetName: string,
+  keywords: string,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === oldTargetName) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!L${i + 2}:M${i + 2}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[targetName, keywords]] },
+      });
+      return;
+    }
+  }
+}
+
+/**
+ * Remove an expense rename rule by finding and clearing the matching L+M cells.
+ */
+export async function removeExpenseRenameRule(
+  targetName: string,
+): Promise<void> {
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === targetName) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `'${SETTINGS_SHEET_NAME}'!L${i + 2}:M${i + 2}`,
+      });
+      return;
+    }
+  }
+}
+
+/**
  * Rename a category: update settings sheet + find-and-replace across all transaction sheets.
  */
 export async function renameCategoryInSheets(
@@ -1025,22 +1617,38 @@ export async function getVacationData(title: string): Promise<VacationData> {
 
   const rawRows = res.data.values ?? [];
   const transactions: Transaction[] = rawRows
-    .map((row, idx) => ({
-      row: idx + 2,
-      date: row[0] ?? "",
-      expense: row[1] ?? "",
-      amount: parseNumber(row[2]),
-      card: row[3] ?? "", // D = card in vacation
-      category: row[4] ?? "", // E = category in vacation
-      notes: row[5] ?? "",
-    }))
+    .map((row, idx) => {
+      const rawF = row[5] ?? "";
+      const confirmedAmount = parseNumber(row[2]);
+      const tentativeAmount = parseNumber(rawF);
+      const tentative = !confirmedAmount && tentativeAmount > 0;
+      return {
+        row: idx + 2,
+        date: row[0] ?? "",
+        expense: row[1] ?? "",
+        amount: tentative ? tentativeAmount : confirmedAmount,
+        card: row[3] ?? "", // D = card in vacation
+        category: row[4] ?? "", // E = category in vacation
+        notes: tentativeAmount > 0 ? "" : rawF,
+        tentative: tentative || undefined,
+      };
+    })
     .filter((t) => t.date || t.expense || t.amount);
 
-  const total = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const confirmedTransactions = transactions.filter((t) => !t.tentative);
+  const total = confirmedTransactions.reduce((sum, t) => sum + t.amount, 0);
+  const nonFlightTransactions = confirmedTransactions.filter(
+    (t) => t.category !== "טיסה",
+  );
+  const totalWithoutFlights = nonFlightTransactions.reduce(
+    (sum, t) => sum + t.amount,
+    0,
+  );
+  const countWithoutFlights = nonFlightTransactions.length;
 
-  // Category breakdown
+  // Category breakdown (exclude tentative)
   const catMap = new Map<string, number>();
-  for (const t of transactions) {
+  for (const t of confirmedTransactions) {
     if (t.category) {
       catMap.set(t.category, (catMap.get(t.category) ?? 0) + t.amount);
     }
@@ -1063,7 +1671,15 @@ export async function getVacationData(title: string): Promise<VacationData> {
     .map(([month, amount]) => ({ month, amount }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
-  return { title, transactions, total, categories, monthBreakdown };
+  return {
+    title,
+    transactions,
+    total,
+    totalWithoutFlights,
+    countWithoutFlights,
+    categories,
+    monthBreakdown,
+  };
 }
 
 /**
@@ -1125,7 +1741,7 @@ export async function createVacationSheet(
       data: [
         {
           range: `'${sheetTitle}'!A1:F1`,
-          values: [["תאריך", "הוצאה", "כמה", "כרטיס", "קטגוריה", "הערות"]],
+          values: [["תאריך", "הוצאה", "כמה", "כרטיס", "קטגוריה", "משוער"]],
         },
         {
           range: `'${sheetTitle}'!H4`,
@@ -1159,6 +1775,9 @@ export async function createVacationSheet(
       cardsZiv: [],
       cardsShared: [],
       summaryCards: [],
+      recurringExpenses: [],
+      categoryMappings: [],
+      expenseRenameRules: [],
     };
   }
 
@@ -1276,6 +1895,101 @@ export async function getVacationRowsForMonth(
   }
 
   return results;
+}
+
+/**
+ * Sync vacation summary rows into a monthly sheet.
+ * Each vacation with expenses in the month gets one row: expense=vacationName,
+ * amount=total, category="חופשה", notes="auto:vacation:{sheetTitle}".
+ * Existing auto rows are updated/cleared to stay in sync.
+ */
+export async function syncVacationRowsToMonthSheet(
+  monthTitle: string,
+  vacationRows: VacationMonthRow[],
+): Promise<void> {
+  const sheets = getSheets();
+  const MARKER_PREFIX = "auto:vacation:";
+
+  // Read existing rows to find auto-vacation markers
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${monthTitle}'!A2:F`,
+  });
+  const existing = res.data.values ?? [];
+
+  // Map: vacationSheetTitle → { row, amount }
+  const existingAutoRows = new Map<string, { row: number; amount: number }>();
+  for (let i = 0; i < existing.length; i++) {
+    const notes = (existing[i]?.[5] ?? "").trim();
+    if (notes.startsWith(MARKER_PREFIX)) {
+      const key = notes.slice(MARKER_PREFIX.length);
+      existingAutoRows.set(key, {
+        row: i + 2,
+        amount: parseNumber(existing[i]?.[2] ?? ""),
+      });
+    }
+  }
+
+  // Build desired state
+  const desired = new Map<string, number>();
+  for (const vr of vacationRows) {
+    desired.set(vr.vacationSheetTitle, vr.amount);
+  }
+
+  const updateData: { range: string; values: string[][] }[] = [];
+
+  // Update or clear existing auto rows
+  for (const [key, { row, amount }] of existingAutoRows) {
+    const desiredAmount = desired.get(key);
+    if (desiredAmount !== undefined) {
+      // Update if amount changed
+      if (desiredAmount !== amount) {
+        updateData.push({
+          range: `'${monthTitle}'!C${row}`,
+          values: [[String(desiredAmount)]],
+        });
+      }
+      desired.delete(key); // handled
+    } else {
+      // No longer relevant — clear the row
+      updateData.push({
+        range: `'${monthTitle}'!A${row}:F${row}`,
+        values: [["", "", "", "", "", ""]],
+      });
+    }
+  }
+
+  // Batch-update existing rows
+  if (updateData.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { valueInputOption: "USER_ENTERED", data: updateData },
+    });
+  }
+
+  // Append new vacation rows using explicit row positions
+  if (desired.size > 0) {
+    const newRows = [...desired.entries()].map(([key, amount]) => {
+      const vr = vacationRows.find((v) => v.vacationSheetTitle === key)!;
+      return [
+        "",
+        vr.vacationName,
+        String(amount),
+        "חופשה",
+        "",
+        `${MARKER_PREFIX}${key}`,
+      ];
+    });
+    const startRow = await findFirstEmptyRow(monthTitle);
+    const data = newRows.map((row, i) => ({
+      range: `'${monthTitle}'!A${startRow + i}:F${startRow + i}`,
+      values: [row],
+    }));
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
 }
 
 // ---- Auto-creation functions ----

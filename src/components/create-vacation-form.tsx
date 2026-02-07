@@ -28,8 +28,7 @@ export function CreateVacationForm() {
   }
 
   return (
-    <div className="card rounded-3 border p-3 mb-4">
-      <h3 className="h6 fw-bold mb-3">חופשה חדשה</h3>
+    <div>
       <div className="d-flex gap-2 align-items-center">
         <input
           className="form-control form-control-sm"

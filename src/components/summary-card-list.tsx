@@ -162,8 +162,7 @@ export function SummaryCardList({
   }
 
   return (
-    <div className="card rounded-3 border p-3 mb-4">
-      <h3 className="h6 fw-bold mb-3">כרטיסי סיכום</h3>
+    <div>
       <div className="d-flex flex-column gap-2 mb-3">
         {items.map((item, idx) =>
           editingIdx === idx ? (

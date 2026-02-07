@@ -1,23 +1,24 @@
-import Link from "next/link";
 import {
   getMonthlyData,
   listSheets,
   getAppConfig,
   getVacationRowsForMonth,
+  syncVacationRowsToMonthSheet,
 } from "@/lib/google-sheets";
 import {
   formatCurrency,
-  getAdjacentMonth,
   getCardOwner,
   getCategoryNames,
   buildCategoryColorMap,
   buildCardsWithOwner,
   CARD_OWNER_COLORS,
   OWNER_LABELS,
+  getSummaryCardIcon,
 } from "@/lib/utils";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
 import { CardBreakdown, type OwnerGroup } from "@/components/card-breakdown";
+import { ExcelImportButton } from "@/components/excel-import-button";
 
 interface MonthPageProps {
   params: Promise<{ id: string }>;
@@ -33,14 +34,20 @@ export default async function MonthPage({ params }: MonthPageProps) {
   if (!sheet) throw new Error(`Sheet with id ${sheetId} not found`);
   const title = sheet.title;
 
-  const data = await getMonthlyData(title, config.summaryCards);
-
   const { cards: allCards, cardColorMap } = buildCardsWithOwner(config);
   const categoryNames = getCategoryNames(config.monthlyCategories);
   const colorMap = buildCategoryColorMap(
     config.monthlyCategories,
     config.vacationCategories,
   );
+
+  // Sync vacation rows into the monthly sheet, then fetch data (includes synced rows)
+  const vacationSheets = sheets.filter((s) => s.type === "vacation");
+  const vacationRows = await getVacationRowsForMonth(title, vacationSheets);
+  await syncVacationRowsToMonthSheet(title, vacationRows);
+
+  const data = await getMonthlyData(title, config.summaryCards);
+
   // Also color cards found in transactions (may not be in config)
   for (const t of data.transactions) {
     if (t.card && !cardColorMap[t.card]) {
@@ -48,11 +55,6 @@ export default async function MonthPage({ params }: MonthPageProps) {
       cardColorMap[t.card] = CARD_OWNER_COLORS[owner];
     }
   }
-  const vacationSheets = sheets.filter((s) => s.type === "vacation");
-  const vacationRows = await getVacationRowsForMonth(title, vacationSheets);
-
-  const prevSheet = getAdjacentMonth(title, -1, sheets);
-  const nextSheet = getAdjacentMonth(title, 1, sheets);
 
   // Group card breakdown by owner
   const cardsByOwner = new Map<string, { card: string; amount: number }[]>();
@@ -64,57 +66,75 @@ export default async function MonthPage({ params }: MonthPageProps) {
 
   return (
     <div className="container-fluid px-4 py-3">
-      {/* Month nav */}
-      <div className="d-flex align-items-center gap-2 mb-4">
-        {prevSheet ? (
-          <Link href={`/month/${prevSheet.sheetId}`} className="month-nav-btn">
-            &#8250;
-          </Link>
-        ) : (
-          <span className="month-nav-btn disabled">&#8250;</span>
-        )}
-        <h1 className="h4 fw-bold mb-0 mx-1">{title}</h1>
-        {nextSheet ? (
-          <Link href={`/month/${nextSheet.sheetId}`} className="month-nav-btn">
-            &#8249;
-          </Link>
-        ) : (
-          <span className="month-nav-btn disabled">&#8249;</span>
-        )}
+      <div className="page-header mb-4">
+        <h1 className="h4 fw-bold mb-0">{title}</h1>
       </div>
 
       {/* Summary cards */}
       <div className="row g-3 mb-4">
-        <div className="col">
-          <div className="card card-green-gradient rounded-3 p-3">
-            <div className="small opacity-75">סה&quot;כ</div>
-            <div className="h5 fw-bold mb-0">
-              {formatCurrency(data.summary.total)}
-            </div>
-            <div className="small opacity-75">
-              {data.transactions.length} הוצאות
-            </div>
-          </div>
-        </div>
-        {data.summary.cards.map((card) => (
-          <div key={card.label} className="col">
-            <div className="card rounded-3 border p-3">
-              <div className="small text-secondary">{card.label}</div>
-              <div className="h5 fw-bold mb-0">
-                {formatCurrency(card.amount)}
+        {[
+          {
+            label: 'סה"כ',
+            amount: data.summary.total,
+            count: data.transactions.length,
+            gradient: "card-green-gradient",
+          },
+          ...data.summary.cards.map((card, i) => {
+            const gradients = [
+              "card-blue-gradient",
+              "card-purple-gradient",
+              "card-orange-gradient",
+            ];
+            return {
+              label: card.label,
+              amount: card.amount,
+              count: card.count,
+              gradient: gradients[i % gradients.length],
+            };
+          }),
+        ].map((card) => {
+          const Icon = getSummaryCardIcon(card.label);
+          return (
+            <div key={card.label} className="col">
+              <div className={`card ${card.gradient} rounded-3 p-3`}>
+                <div className="d-flex align-items-center gap-2 mb-2">
+                  <span className="summary-card-icon">
+                    <Icon size={18} />
+                  </span>
+                  <span className="small opacity-75">{card.label}</span>
+                </div>
+                <div className="h5 fw-bold mb-0 text-center">
+                  {formatCurrency(card.amount)}
+                </div>
+                <div className="small opacity-75 text-center">
+                  {card.count} הוצאות
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Table + Chart + Card breakdown */}
       <div className="row g-4">
         <div className="col-lg-8">
           <div className="card rounded-3 border p-3">
-            <h3 className="h6 fw-bold mb-3">הוצאות החודש</h3>
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h3 className="h6 fw-bold mb-0">הוצאות החודש</h3>
+              <ExcelImportButton
+                sheetTitle={title}
+                cards={allCards}
+                cardColorMap={cardColorMap}
+                pagePath={`/month/${id}`}
+                categoryMappings={config.categoryMappings}
+                expenseRenameRules={config.expenseRenameRules}
+                recurringExpenses={config.recurringExpenses}
+              />
+            </div>
             <TransactionTable
-              transactions={data.transactions}
+              transactions={data.transactions.filter(
+                (t) => !t.notes.startsWith("auto:vacation:"),
+              )}
               sheetTitle={title}
               pagePath={`/month/${id}`}
               categories={categoryNames}
@@ -122,6 +142,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
               colorMap={colorMap}
               cardColorMap={cardColorMap}
               vacationRows={vacationRows}
+              categoryMappings={config.categoryMappings}
             />
           </div>
         </div>

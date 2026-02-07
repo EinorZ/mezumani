@@ -1,5 +1,44 @@
 import { HEBREW_MONTHS, SETTINGS_SHEET_NAME } from "./constants";
 import type { SheetInfo, YearGroup } from "./types";
+import {
+  CreditCard,
+  Home,
+  Plane,
+  ShoppingCart,
+  Car,
+  Utensils,
+  Heart,
+  Gift,
+  Briefcase,
+  GraduationCap,
+  Dumbbell,
+  Baby,
+  type LucideIcon,
+  Wallet,
+} from "lucide-react";
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  'סה"כ': CreditCard,
+  סהכ: CreditCard,
+  דיור: Home,
+  חופשות: Plane,
+  חופשה: Plane,
+  קניות: ShoppingCart,
+  סופר: ShoppingCart,
+  רכב: Car,
+  אוכל: Utensils,
+  מסעדות: Utensils,
+  בריאות: Heart,
+  מתנות: Gift,
+  עבודה: Briefcase,
+  לימודים: GraduationCap,
+  ספורט: Dumbbell,
+  תינוק: Baby,
+};
+
+export function getSummaryCardIcon(label: string): LucideIcon {
+  return ICON_MAP[label] ?? Wallet;
+}
 
 const currencyFormatter = new Intl.NumberFormat("he-IL", {
   style: "currency",
@@ -165,9 +204,9 @@ export function buildCardsWithOwner(config: AppConfig): {
   const cardColorMap: Record<string, string> = {};
 
   const groups: { items: string[]; owner: "einor" | "ziv" | "shared" }[] = [
+    { items: config.cardsShared, owner: "shared" },
     { items: config.cardsEinor, owner: "einor" },
     { items: config.cardsZiv, owner: "ziv" },
-    { items: config.cardsShared, owner: "shared" },
   ];
 
   for (const group of groups) {
@@ -240,8 +279,8 @@ export function buildYearGroups(sheets: SheetInfo[]): YearGroup[] {
 
   const groups: YearGroup[] = [];
   for (const [year, data] of yearMap) {
-    data.months.sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
-    data.vacations.sort((a, b) => a.title.localeCompare(b.title, "he"));
+    data.months.sort((a, b) => (b.monthIndex ?? 0) - (a.monthIndex ?? 0));
+    // vacations keep their original Google Sheets tab order
     groups.push({
       year,
       fullYear: 2000 + year,
