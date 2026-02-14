@@ -110,8 +110,15 @@ export function RebalanceCalculator({ holdings, config }: Props) {
   const priceBySymbol = useMemo(() => {
     const map: Record<string, number> = {};
     for (const h of holdings) {
-      if (h.currentPriceILS > 0) {
-        map[h.symbol] = h.currentPriceILS;
+      // Use currentPriceILS if available, otherwise derive from value/shares
+      const price =
+        h.currentPriceILS > 0
+          ? h.currentPriceILS
+          : h.totalShares > 0
+            ? h.currentValueILS / h.totalShares
+            : 0;
+      if (price > 0) {
+        map[h.symbol] = price;
       }
     }
     return map;
@@ -167,9 +174,20 @@ export function RebalanceCalculator({ holdings, config }: Props) {
       const allocatedAmount =
         effectiveAmounts[rec.label] ?? rec.recommendedAmount;
       const selectedSymbol = selectedStocks[rec.label];
-      const stockPrice = selectedSymbol
+      // Try selected stock price, then fall back to any stock in this label
+      let stockPrice = selectedSymbol
         ? priceBySymbol[selectedSymbol] ?? 0
         : 0;
+      if (stockPrice === 0 && selectedSymbol) {
+        // Fallback: find price from any holding with this label
+        const labelStocks = stocksByLabel[rec.label] ?? [];
+        for (const s of labelStocks) {
+          if (priceBySymbol[s.symbol] > 0) {
+            stockPrice = priceBySymbol[s.symbol];
+            break;
+          }
+        }
+      }
       const autoShareCount =
         stockPrice > 0 ? Math.floor(allocatedAmount / stockPrice) : 0;
       const shareCount =
@@ -207,6 +225,7 @@ export function RebalanceCalculator({ holdings, config }: Props) {
     priceBySymbol,
     currentValueByLabel,
     manualShareCounts,
+    stocksByLabel,
   ]);
 
   function handleShareCountChange(label: string, value: string) {

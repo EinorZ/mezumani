@@ -73,7 +73,7 @@ export async function fetchIsraeliStockPrice(id: string): Promise<number> {
     }
   }
 
-  setCache(`funder:${id}`, 0);
+  // Don't cache 0 — allow retry on next request
   return 0;
 }
 
