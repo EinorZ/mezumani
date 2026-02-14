@@ -1098,50 +1098,8 @@ export function TransactionTable({
         ),
       )}
 
-      {filteredTransactions.length === 0 && !vacationRows?.length && (
+      {filteredTransactions.length === 0 && (
         <div className="text-center text-secondary py-4">אין הוצאות עדיין</div>
-      )}
-
-      {/* Vacation summary rows */}
-      {vacationRows && vacationRows.length > 0 && (
-        <>
-          <div className="tx-row" style={{ cursor: "default" }}>
-            <div className="small fw-bold text-secondary" style={{ flex: 1 }}>
-              חופשות
-            </div>
-          </div>
-          {vacationRows.map((vr) => (
-            <div
-              key={vr.vacationSheetTitle}
-              className="tx-row tx-row-vacation"
-              style={{ cursor: "default" }}
-            >
-              <div style={{ flex: COL.date }} />
-              <div style={{ flex: COL.expense }}>
-                <Link
-                  href={`/vacation/${vr.vacationSheetId}`}
-                  className="text-decoration-none fw-medium"
-                >
-                  {vr.vacationName}
-                </Link>
-              </div>
-              <div style={{ flex: COL.amount }}>
-                {formatCurrency(vr.amount)}
-              </div>
-              <div style={{ flex: COL.category }}>
-                <span
-                  className="badge rounded-pill"
-                  style={{
-                    backgroundColor: colorMap["חופשה"] || "#6c757d",
-                  }}
-                >
-                  חופשה
-                </span>
-              </div>
-              <div style={{ flex: COL.card }} />
-            </div>
-          ))}
-        </>
       )}
 
       {/* Bulk edit bar */}

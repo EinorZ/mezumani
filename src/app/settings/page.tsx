@@ -1,4 +1,4 @@
-import { getAppConfig } from "@/lib/google-sheets";
+import { getAppConfig, getStockConfig } from "@/lib/google-sheets";
 import {
   addCategory,
   removeCategory,
@@ -18,6 +18,18 @@ import {
   addExpenseRenameRuleAction,
   updateExpenseRenameRuleAction,
   removeExpenseRenameRuleAction,
+  addIncome,
+  updateIncome,
+  removeIncome,
+  addStock,
+  updateStock,
+  removeStock,
+  addBroker,
+  updateBroker,
+  removeBroker,
+  addGoal,
+  updateGoal,
+  removeGoal,
 } from "@/lib/actions";
 import {
   CARD_OWNER_COLORS,
@@ -30,6 +42,10 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { RecurringExpenseList } from "@/components/recurring-expense-list";
 import { CategoryMappingList } from "@/components/category-mapping-list";
 import { ExpenseRenameRuleList } from "@/components/expense-rename-rule-list";
+import { IncomeSourceList } from "@/components/income-source-list";
+import { StockDefinitionList } from "@/components/stock-definition-list";
+import { BrokerList } from "@/components/broker-list";
+import { StockGoalList } from "@/components/stock-goal-list";
 
 const cardGroups = [
   { key: "shared" as const, label: "משותף", color: CARD_OWNER_COLORS.shared },
@@ -38,7 +54,10 @@ const cardGroups = [
 ];
 
 export default async function SettingsPage() {
-  const config = await getAppConfig();
+  const [config, stockConfig] = await Promise.all([
+    getAppConfig(),
+    getStockConfig(),
+  ]);
 
   const cardData = {
     einor: config.cardsEinor,
@@ -70,6 +89,29 @@ export default async function SettingsPage() {
           </span>
           <span className="settings-group-title">קטגוריות ואמצעי תשלום</span>
         </div>
+
+        <CollapsibleSection
+          title="מקורות הכנסה"
+          icon="&#128176;"
+          description="הכנסות חודשיות שנוספות אוטומטית לגיליון חדש"
+          accentColor="#0d6efd"
+        >
+          <IncomeSourceList
+            items={config.incomeSources}
+            onAdd={async (name, amount) => {
+              "use server";
+              await addIncome(name, amount);
+            }}
+            onUpdate={async (oldName, name, amount) => {
+              "use server";
+              await updateIncome(oldName, name, amount);
+            }}
+            onRemove={async (name) => {
+              "use server";
+              await removeIncome(name);
+            }}
+          />
+        </CollapsibleSection>
 
         <div className="settings-group-grid">
           <div>
@@ -320,6 +362,99 @@ export default async function SettingsPage() {
             onRemove={async (targetName) => {
               "use server";
               await removeExpenseRenameRuleAction(targetName);
+            }}
+          />
+        </CollapsibleSection>
+      </div>
+
+      {/* ── Stock Portfolio ── */}
+      <div className="settings-group">
+        <div className="settings-group-header">
+          <span className="settings-group-icon" role="img" aria-label="השקעות">
+            &#128200;
+          </span>
+          <span className="settings-group-title">השקעות</span>
+        </div>
+
+        <CollapsibleSection
+          title="מניות"
+          icon="&#128202;"
+          description="הגדרת מניות וקרנות למעקב"
+          accentColor="#0d6efd"
+        >
+          <StockDefinitionList
+            items={stockConfig.stocks}
+            onAdd={async (symbol, displayName, source, currency, label) => {
+              "use server";
+              await addStock(symbol, displayName, source, currency, label);
+            }}
+            onUpdate={async (
+              oldSymbol,
+              symbol,
+              displayName,
+              source,
+              currency,
+              label,
+            ) => {
+              "use server";
+              await updateStock(
+                oldSymbol,
+                symbol,
+                displayName,
+                source,
+                currency,
+                label,
+              );
+            }}
+            onRemove={async (symbol) => {
+              "use server";
+              await removeStock(symbol);
+            }}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="בנקים ועמלות"
+          icon="&#127974;"
+          description="בנקים וברוקרים עם דמי ניהול ועמלות"
+          accentColor="#198754"
+        >
+          <BrokerList
+            items={stockConfig.brokers}
+            onAdd={async (name, mgmtFee, purchaseFee) => {
+              "use server";
+              await addBroker(name, mgmtFee, purchaseFee);
+            }}
+            onUpdate={async (oldName, name, mgmtFee, purchaseFee) => {
+              "use server";
+              await updateBroker(oldName, name, mgmtFee, purchaseFee);
+            }}
+            onRemove={async (name) => {
+              "use server";
+              await removeBroker(name);
+            }}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="יעדי השקעה"
+          icon="&#127919;"
+          description="יעדי חיסכון לפי טווח השקעה"
+          accentColor="#6f42c1"
+        >
+          <StockGoalList
+            items={stockConfig.goals}
+            onAdd={async (term, label, targetAmount) => {
+              "use server";
+              await addGoal(term, label, targetAmount);
+            }}
+            onUpdate={async (oldLabel, term, label, targetAmount) => {
+              "use server";
+              await updateGoal(oldLabel, term, label, targetAmount);
+            }}
+            onRemove={async (label) => {
+              "use server";
+              await removeGoal(label);
             }}
           />
         </CollapsibleSection>

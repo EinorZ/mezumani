@@ -1,18 +1,12 @@
+import { getVacationData, getSheetTitle } from "@/lib/google-sheets";
 import {
-  getVacationData,
-  getAppConfig,
-  getSheetTitle,
-} from "@/lib/google-sheets";
-import {
-  formatCurrency,
+  loadPageConfig,
   getCategoryNames,
-  buildCategoryColorMap,
-  buildCardsWithOwner,
-  getCardOwner,
-  CARD_OWNER_COLORS,
-} from "@/lib/utils";
+  ensureTransactionCardColors,
+} from "@/lib/page-helpers";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
+import { SummaryCards } from "@/components/summary-cards";
 
 interface VacationPageProps {
   params: Promise<{ id: string }>;
@@ -23,24 +17,11 @@ export default async function VacationPage({ params }: VacationPageProps) {
   const sheetId = parseInt(id, 10);
   const title = await getSheetTitle(sheetId);
 
-  const [data, config] = await Promise.all([
-    getVacationData(title),
-    getAppConfig(),
-  ]);
+  const [data, { config, allCards, cardColorMap, colorMap }] =
+    await Promise.all([getVacationData(title), loadPageConfig()]);
 
   const vacCategoryNames = getCategoryNames(config.vacationCategories);
-  const colorMap = buildCategoryColorMap(
-    config.monthlyCategories,
-    config.vacationCategories,
-  );
-  const { cards: allCards, cardColorMap } = buildCardsWithOwner(config);
-  // Also color cards found in transactions (may not be in config)
-  for (const t of data.transactions) {
-    if (t.card && !cardColorMap[t.card]) {
-      const owner = getCardOwner(t.card, config);
-      cardColorMap[t.card] = CARD_OWNER_COLORS[owner];
-    }
-  }
+  ensureTransactionCardColors(data.transactions, cardColorMap, config);
 
   return (
     <div className="container-fluid px-4 py-3">
@@ -48,29 +29,22 @@ export default async function VacationPage({ params }: VacationPageProps) {
         <h1 className="h4 fw-bold mb-0">{title}</h1>
       </div>
 
-      {/* Summary cards */}
-      <div className="row g-3 mb-4">
-        <div className="col-6">
-          <div className="card card-green-gradient rounded-3 p-3">
-            <div className="small opacity-75">סה&quot;כ הוצאות</div>
-            <div className="h4 fw-bold mb-1">{formatCurrency(data.total)}</div>
-            <div className="small opacity-75">
-              {data.transactions.length} הוצאות
-            </div>
-          </div>
-        </div>
-        <div className="col-6">
-          <div className="card card-blue-gradient rounded-3 p-3">
-            <div className="small opacity-75">ללא טיסות</div>
-            <div className="h4 fw-bold mb-1">
-              {formatCurrency(data.totalWithoutFlights)}
-            </div>
-            <div className="small opacity-75">
-              {data.countWithoutFlights} הוצאות
-            </div>
-          </div>
-        </div>
-      </div>
+      <SummaryCards
+        cards={[
+          {
+            label: 'סה"כ הוצאות',
+            amount: data.total,
+            subtitle: `${data.transactions.length} הוצאות`,
+            gradient: "card-red-gradient",
+          },
+          {
+            label: "ללא טיסות",
+            amount: data.totalWithoutFlights,
+            subtitle: `${data.countWithoutFlights} הוצאות`,
+            gradient: "card-blue-gradient",
+          },
+        ]}
+      />
 
       {/* Table + Chart */}
       <div className="row g-4">

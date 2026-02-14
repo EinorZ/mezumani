@@ -200,6 +200,24 @@ export function Sidebar({ yearGroups }: Props) {
       </div>
 
       <nav className="sidebar-nav">
+        {/* Stock portfolio — always visible, above year groups */}
+        <div
+          className="sidebar-section-label"
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.5rem 1.5rem 0.2rem",
+          }}
+        >
+          השקעות
+        </div>
+        <Link
+          href="/stocks"
+          className={`sidebar-link ${isActive("/stocks") ? "active" : ""}`}
+        >
+          תיק מניות
+        </Link>
+
         {yearGroups.map((group) => {
           const expanded = expandedYears.has(group.year);
           return (

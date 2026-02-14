@@ -16,6 +16,17 @@ import type {
   RecurringExpense,
   CategoryMapping,
   ExpenseRenameRule,
+  IncomeSource,
+  StockConfig,
+  StockDefinition,
+  StockGoal,
+  BrokerConfig,
+  LabelAllocation,
+  StockTransaction,
+  PriceSource,
+  StockCurrency,
+  InvestmentTerm,
+  TransactionType,
 } from "./types";
 import {
   SETTINGS_SHEET_NAME,
@@ -32,6 +43,24 @@ import {
   SETTINGS_RANGE_CATEGORY_MAP_CATEGORIES,
   SETTINGS_RANGE_RENAME_RULE_NAMES,
   SETTINGS_RANGE_RENAME_RULE_KEYWORDS,
+  SETTINGS_RANGE_INCOME_NAMES,
+  SETTINGS_RANGE_INCOME_DATA,
+  SETTINGS_RANGE_STOCK_SYMBOLS,
+  SETTINGS_RANGE_STOCK_NAMES,
+  SETTINGS_RANGE_STOCK_SOURCES,
+  SETTINGS_RANGE_STOCK_CURRENCIES,
+  SETTINGS_RANGE_GOAL_TERMS,
+  SETTINGS_RANGE_GOAL_LABELS,
+  SETTINGS_RANGE_GOAL_AMOUNTS,
+  SETTINGS_RANGE_BROKER_NAMES,
+  SETTINGS_RANGE_BROKER_MGMT_FEES,
+  SETTINGS_RANGE_BROKER_PURCHASE_FEES,
+  SETTINGS_RANGE_STOCK_LABELS,
+  SETTINGS_RANGE_ALLOC_LABELS,
+  SETTINGS_RANGE_ALLOC_PERCENTS,
+  SETTINGS_RANGE_ALLOC_STOCKS,
+  STOCKS_SHEET_NAME,
+  STOCK_SHEET_HEADERS,
   DEFAULT_CATEGORY_COLOR,
   HEBREW_MONTHS,
 } from "./constants";
@@ -50,6 +79,8 @@ function getSheets() {
 }
 
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID!;
+const STOCKS_SPREADSHEET_ID =
+  process.env.GOOGLE_STOCKS_SPREADSHEET_ID ?? SPREADSHEET_ID;
 
 /**
  * List all sheet names and classify them.
@@ -115,12 +146,14 @@ export async function getMonthlyData(
 ): Promise<MonthlyData> {
   const sheets = getSheets();
 
-  const res = await sheets.spreadsheets.values.get({
+  const res = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${title}'!A2:F`,
+    ranges: [`'${title}'!A2:F`, `'${title}'!H1:I17`],
   });
 
-  const rawTransactions = res.data.values ?? [];
+  const valueRanges = res.data.valueRanges ?? [];
+
+  const rawTransactions = valueRanges[0]?.values ?? [];
   const transactions: Transaction[] = rawTransactions
     .map((row, idx) => {
       const rawF = row[5] ?? "";
@@ -175,7 +208,26 @@ export async function getMonthlyData(
     .map(([card, amount]) => ({ card, amount }))
     .sort((a, b) => b.amount - a.amount);
 
-  return { title, transactions, summary, categories, cards };
+  // Parse income entries from H1:I (H1=header, H2+ = sources)
+  const rawIncome = valueRanges[1]?.values ?? [];
+  const income: IncomeSource[] = rawIncome
+    .slice(1) // skip header row
+    .map((row) => ({
+      name: row[0]?.trim() ?? "",
+      amount: parseNumber(row[1]),
+    }))
+    .filter((e) => e.name);
+  const totalIncome = income.reduce((s, e) => s + e.amount, 0);
+
+  return {
+    title,
+    transactions,
+    summary,
+    categories,
+    cards,
+    income,
+    totalIncome,
+  };
 }
 
 /**
@@ -190,8 +242,11 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     .filter((s) => s.type === "monthly" && s.year === yearSuffix)
     .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
 
-  // Batch-fetch transactions from all monthly sheets
-  const ranges = monthlySheets.map((s) => `'${s.title}'!A2:F`);
+  // Batch-fetch transactions and income from all monthly sheets
+  const ranges = monthlySheets.flatMap((s) => [
+    `'${s.title}'!A2:F`,
+    `'${s.title}'!H1:I17`,
+  ]);
   let valueRanges: { values?: string[][] }[] = [];
   if (ranges.length > 0) {
     const res = await sheets.spreadsheets.values.batchGet({
@@ -206,9 +261,11 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
   const monthData = new Map<number, Map<string, number>>();
   const allCategories = new Set<string>();
 
+  let totalIncome = 0;
+
   for (let i = 0; i < monthlySheets.length; i++) {
     const monthIndex = monthlySheets[i].monthIndex ?? 0;
-    const rawRows = valueRanges[i]?.values ?? [];
+    const rawRows = valueRanges[i * 2]?.values ?? [];
     const catMap = new Map<string, number>();
 
     for (const row of rawRows) {
@@ -221,6 +278,14 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     }
 
     monthData.set(monthIndex, catMap);
+
+    // Parse income for this month
+    const rawIncome = valueRanges[i * 2 + 1]?.values ?? [];
+    for (const row of rawIncome.slice(1)) {
+      const name = row[0]?.trim() ?? "";
+      const amount = parseNumber(row[1]);
+      if (name && amount) totalIncome += amount;
+    }
   }
 
   // Grand total across all months
@@ -270,7 +335,9 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     total: grandTotal > 0 ? grandTotal : null,
   };
 
-  return { year: yearSuffix, rows, totals };
+  const totalSavings = totalIncome - (grandTotal > 0 ? grandTotal : 0);
+
+  return { year: yearSuffix, rows, totals, totalIncome, totalSavings };
 }
 
 // ---- Write functions ----
@@ -590,63 +657,25 @@ export async function createMonthSheet(
     addSheetRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
   if (newSheetId === undefined) throw new Error("Failed to create sheet");
 
-  // Write headers and formulas
+  // Write headers, income, and formulas
+  const formulaData: { range: string; values: string[][] }[] = [
+    // Headers
+    {
+      range: `'${sheetTitle}'!A1:F1`,
+      values: [["תאריך", "הוצאה", "כמה", "קטגוריה", "כרטיס", "משוער"]],
+    },
+    // Income header at H1
+    {
+      range: `'${sheetTitle}'!H1:I1`,
+      values: [["הכנסות:", "=SUM(I2:I17)"]],
+    },
+  ];
+
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
       valueInputOption: "USER_ENTERED",
-      data: [
-        // Headers
-        {
-          range: `'${sheetTitle}'!A1:F1`,
-          values: [["תאריך", "הוצאה", "כמה", "קטגוריה", "כרטיס", "משוער"]],
-        },
-        // Summary labels and formulas
-        {
-          range: `'${sheetTitle}'!H4`,
-          values: [['סכ"ה:']],
-        },
-        {
-          range: `'${sheetTitle}'!I4`,
-          values: [["=SUM(C:C)"]],
-        },
-        {
-          range: `'${sheetTitle}'!H6:I8`,
-          values: [
-            ["הוצאות עינור:", '=SUMIF(E:E,"*עינור*",C:C)'],
-            ["הוצאות זיו:", '=SUMIF(E:E,"*זיו*",C:C)'],
-            ["הוצאות אחר:", "=I4-I6-I7"],
-          ],
-        },
-        {
-          range: `'${sheetTitle}'!H11:I12`,
-          values: [
-            [
-              "הוצאות דירה:",
-              '=SUMIF(D:D,"*מגורים*",C:C)+SUMIF(D:D,"*בית*",C:C)',
-            ],
-            ["הוצאות חופשה:", '=SUMIF(D:D,"*חופשה*",C:C)'],
-          ],
-        },
-        // Category QUERY
-        {
-          range: `'${sheetTitle}'!K4`,
-          values: [
-            [
-              "=QUERY(A:F,\"SELECT D, SUM(C) WHERE D IS NOT NULL GROUP BY D ORDER BY SUM(C) DESC LABEL SUM(C) ''\",1)",
-            ],
-          ],
-        },
-        // Card QUERY
-        {
-          range: `'${sheetTitle}'!K40`,
-          values: [
-            [
-              "=QUERY(A:F,\"SELECT E, SUM(C) WHERE E IS NOT NULL GROUP BY E ORDER BY SUM(C) DESC LABEL SUM(C) ''\",1)",
-            ],
-          ],
-        },
-      ],
+      data: formulaData,
     },
   });
 
@@ -665,6 +694,7 @@ export async function createMonthSheet(
       recurringExpenses: [],
       categoryMappings: [],
       expenseRenameRules: [],
+      incomeSources: [],
     };
   }
   const categoryValues = config.monthlyCategories.map((c) => c.name);
@@ -768,6 +798,20 @@ export async function createMonthSheet(
       range: `'${sheetTitle}'!A2:F${recurringRows.length + 1}`,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: recurringRows },
+    });
+  }
+
+  // Auto-populate income sources at H2:I
+  if (config.incomeSources.length > 0) {
+    const incomeRows = config.incomeSources.map((src) => [
+      src.name,
+      String(src.amount),
+    ]);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${sheetTitle}'!H2:I${1 + incomeRows.length}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: incomeRows },
     });
   }
 }
@@ -931,7 +975,7 @@ export async function ensureSettingsSheet(): Promise<void> {
   // Seed with headers only — categories will be synced from existing sheets
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!A1:M1`,
+    range: `'${SETTINGS_SHEET_NAME}'!A1:O1`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [
@@ -949,6 +993,8 @@ export async function ensureSettingsSheet(): Promise<void> {
           "קטגוריה (מיפוי)",
           "שם חדש (מיפוי)",
           "מילות מפתח",
+          "מקור הכנסה",
+          "פרטי הכנסה",
         ],
       ],
     },
@@ -980,6 +1026,8 @@ export async function getAppConfig(): Promise<AppConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CATEGORY_MAP_CATEGORIES}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RENAME_RULE_NAMES}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RENAME_RULE_KEYWORDS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_DATA}`,
     ],
   });
 
@@ -1056,6 +1104,16 @@ export async function getAppConfig(): Promise<AppConfig> {
     }))
     .filter((r) => r.keywords);
 
+  // Parse income sources from N (names) and O (data)
+  const incomeNames = extractStrings(13);
+  const incomeDataRows = (valueRanges[14]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const incomeSources: IncomeSource[] = incomeNames.map((name, i) => ({
+    name,
+    amount: parseNumber(incomeDataRows[i] ?? ""),
+  }));
+
   return {
     monthlyCategories: extractCategories(0),
     vacationCategories: extractCategories(1),
@@ -1066,6 +1124,7 @@ export async function getAppConfig(): Promise<AppConfig> {
     recurringExpenses,
     categoryMappings,
     expenseRenameRules,
+    incomeSources,
   };
 }
 
@@ -1167,90 +1226,25 @@ export async function removeCategoryConfigItem(
   }
 }
 
-/**
- * Add a summary card (label in F, categories in G) to the first empty row.
- */
 export async function addSummaryCardItem(
   label: string,
   categories: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!F2:F100`,
-  });
-  const values = res.data.values ?? [];
-  let emptyRow = 2;
-  for (let i = 0; i < values.length; i++) {
-    if (!values[i] || !values[i][0]?.trim()) {
-      emptyRow = i + 2;
-      break;
-    }
-    emptyRow = i + 3;
-  }
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!F${emptyRow}:G${emptyRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[label, categories]] },
-  });
+  await addSettingsRow(SUMMARY_CARD_CONFIG, [label, categories]);
 }
 
-/**
- * Remove a summary card by finding the label in F and clearing both F and G.
- */
 export async function removeSummaryCardItem(label: string): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!F2:F100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === label) {
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!F${i + 2}:G${i + 2}`,
-      });
-      return;
-    }
-  }
+  await removeSettingsRow(SUMMARY_CARD_CONFIG, label);
 }
 
-/**
- * Update a summary card: find by old label in F, overwrite F and G with new values.
- */
 export async function updateSummaryCardItem(
   oldLabel: string,
   newLabel: string,
   categories: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!F2:F100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === oldLabel) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!F${i + 2}:G${i + 2}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[newLabel, categories]] },
-      });
-      return;
-    }
-  }
+  await updateSettingsRow(SUMMARY_CARD_CONFIG, oldLabel, [newLabel, categories]);
 }
 
-/**
- * Add a recurring expense to the first empty row in H+I columns.
- */
 export async function addRecurringExpense(
   name: string,
   amount: number,
@@ -1259,34 +1253,10 @@ export async function addRecurringExpense(
   keywords: string = "",
   tentative: boolean = false,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
-  });
-  const values = res.data.values ?? [];
-  let emptyRow = 2;
-  for (let i = 0; i < values.length; i++) {
-    if (!values[i] || !values[i][0]?.trim()) {
-      emptyRow = i + 2;
-      break;
-    }
-    emptyRow = i + 3;
-  }
-
   const dataStr = `${amount || ""}|${category}|${card}|${keywords}|${tentative ? "1" : ""}`;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!H${emptyRow}:I${emptyRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[name, dataStr]] },
-  });
+  await addSettingsRow(RECURRING_CONFIG, [name, dataStr]);
 }
 
-/**
- * Update a recurring expense by finding the old name and overwriting H+I.
- */
 export async function updateRecurringExpense(
   oldName: string,
   name: string,
@@ -1296,47 +1266,12 @@ export async function updateRecurringExpense(
   keywords: string = "",
   tentative: boolean = false,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === oldName) {
-      const dataStr = `${amount || ""}|${category}|${card}|${keywords}|${tentative ? "1" : ""}`;
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!H${i + 2}:I${i + 2}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[name, dataStr]] },
-      });
-      return;
-    }
-  }
+  const dataStr = `${amount || ""}|${category}|${card}|${keywords}|${tentative ? "1" : ""}`;
+  await updateSettingsRow(RECURRING_CONFIG, oldName, [name, dataStr]);
 }
 
-/**
- * Remove a recurring expense by finding and clearing the matching H+I cells.
- */
 export async function removeRecurringExpense(name: string): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!H2:H100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === name) {
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!H${i + 2}:I${i + 2}`,
-      });
-      return;
-    }
-  }
+  await removeSettingsRow(RECURRING_CONFIG, name);
 }
 
 /**
@@ -1368,9 +1303,6 @@ export async function reorderRecurringExpenses(
   });
 }
 
-/**
- * Add one or more category mappings starting at the first empty row in J+K columns.
- */
 export async function addCategoryMapping(
   expenseNames: string | string[],
   category: string,
@@ -1378,164 +1310,103 @@ export async function addCategoryMapping(
   const names = Array.isArray(expenseNames) ? expenseNames : [expenseNames];
   if (names.length === 0) return;
 
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
-  });
-  const values = res.data.values ?? [];
-  let emptyRow = 2;
-  for (let i = 0; i < values.length; i++) {
-    if (!values[i] || !values[i][0]?.trim()) {
-      emptyRow = i + 2;
-      break;
-    }
-    emptyRow = i + 3;
+  if (names.length === 1) {
+    await addSettingsRow(MAPPING_CONFIG, [names[0], category]);
+    return;
   }
 
+  // Multiple names: batch write
+  const sheets = getSheets();
+  const row = await findFirstEmptySettingsRow(MAPPING_CONFIG);
   const rows = names.map((name) => [name, category]);
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!J${emptyRow}:K${emptyRow + rows.length - 1}`,
+    range: `'${SETTINGS_SHEET_NAME}'!J${row}:K${row + rows.length - 1}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: rows },
   });
 }
 
-/**
- * Update a category mapping by finding the old expense name and overwriting J+K.
- */
 export async function updateCategoryMapping(
   oldExpenseName: string,
   expenseName: string,
   category: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === oldExpenseName) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!J${i + 2}:K${i + 2}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[expenseName, category]] },
-      });
-      return;
-    }
-  }
+  await updateSettingsRow(MAPPING_CONFIG, oldExpenseName, [expenseName, category]);
 }
 
-/**
- * Remove a category mapping by finding and clearing the matching J+K cells.
- */
 export async function removeCategoryMapping(
   expenseName: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!J2:J100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === expenseName) {
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!J${i + 2}:K${i + 2}`,
-      });
-      return;
-    }
-  }
+  await removeSettingsRow(MAPPING_CONFIG, expenseName);
 }
 
-/**
- * Add an expense rename rule to the first empty row in L+M columns.
- */
 export async function addExpenseRenameRule(
   targetName: string,
   keywords: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
-  });
-  const values = res.data.values ?? [];
-  let emptyRow = 2;
-  for (let i = 0; i < values.length; i++) {
-    if (!values[i] || !values[i][0]?.trim()) {
-      emptyRow = i + 2;
-      break;
-    }
-    emptyRow = i + 3;
-  }
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L${emptyRow}:M${emptyRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[targetName, keywords]] },
-  });
+  await addSettingsRow(RENAME_CONFIG, [targetName, keywords]);
 }
 
-/**
- * Update an expense rename rule by finding the old target name and overwriting L+M.
- */
 export async function updateExpenseRenameRule(
   oldTargetName: string,
   targetName: string,
   keywords: string,
 ): Promise<void> {
-  const sheets = getSheets();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
-  });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === oldTargetName) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!L${i + 2}:M${i + 2}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[targetName, keywords]] },
-      });
-      return;
-    }
-  }
+  await updateSettingsRow(RENAME_CONFIG, oldTargetName, [targetName, keywords]);
 }
 
-/**
- * Remove an expense rename rule by finding and clearing the matching L+M cells.
- */
 export async function removeExpenseRenameRule(
   targetName: string,
 ): Promise<void> {
+  await removeSettingsRow(RENAME_CONFIG, targetName);
+}
+
+// ---- Income source functions ----
+
+export async function addIncomeSource(
+  name: string,
+  amount: number,
+): Promise<void> {
+  await addSettingsRow(INCOME_CONFIG, [name, amount || ""]);
+}
+
+export async function updateIncomeSource(
+  oldName: string,
+  name: string,
+  amount: number,
+): Promise<void> {
+  await updateSettingsRow(INCOME_CONFIG, oldName, [name, amount || ""]);
+}
+
+export async function removeIncomeSource(name: string): Promise<void> {
+  await removeSettingsRow(INCOME_CONFIG, name);
+}
+
+/**
+ * Update monthly income entries in H2:I area of a month sheet.
+ */
+export async function updateMonthIncome(
+  sheetTitle: string,
+  entries: IncomeSource[],
+): Promise<void> {
   const sheets = getSheets();
 
-  const res = await sheets.spreadsheets.values.get({
+  // Clear existing income data
+  await sheets.spreadsheets.values.clear({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L2:L100`,
+    range: `'${sheetTitle}'!H2:I17`,
   });
-  const values = res.data.values ?? [];
-  for (let i = 0; i < values.length; i++) {
-    if (values[i]?.[0]?.trim() === targetName) {
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `'${SETTINGS_SHEET_NAME}'!L${i + 2}:M${i + 2}`,
-      });
-      return;
-    }
-  }
+
+  if (entries.length === 0) return;
+
+  const rows = entries.map((e) => [e.name, String(e.amount)]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${sheetTitle}'!H2:I${1 + rows.length}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: rows },
+  });
 }
 
 /**
@@ -1778,6 +1649,7 @@ export async function createVacationSheet(
       recurringExpenses: [],
       categoryMappings: [],
       expenseRenameRules: [],
+      incomeSources: [],
     };
   }
 
@@ -2013,4 +1885,567 @@ export async function ensureCurrentSheets(
   }
 
   return false;
+}
+
+// ──────────────────────────────────────────
+// Stock portfolio functions
+// ──────────────────────────────────────────
+
+/**
+ * Read stock configuration from the settings sheet (columns P-Y).
+ */
+async function ensureStockSettingsSheet(): Promise<void> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
+  if (titles.includes(SETTINGS_SHEET_NAME)) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: { title: SETTINGS_SHEET_NAME, rightToLeft: true },
+          },
+        },
+      ],
+    },
+  });
+
+  // Write headers for stock settings columns
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!A1:K1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          "סימול",
+          "שם תצוגה",
+          "מקור מחיר",
+          "מטבע",
+          "תווית",
+          "טווח יעד",
+          "שם יעד",
+          "סכום יעד",
+          "בנק",
+          "דמי ניהול %",
+          "עמלת קניה %",
+        ],
+      ],
+    },
+  });
+}
+
+export async function getStockConfig(): Promise<StockConfig> {
+  await ensureStockSettingsSheet();
+  const sheets = getSheets();
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    ranges: [
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_STOCK_SYMBOLS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_STOCK_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_STOCK_SOURCES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_STOCK_CURRENCIES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_STOCK_LABELS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_GOAL_TERMS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_GOAL_LABELS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_GOAL_AMOUNTS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_BROKER_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_BROKER_MGMT_FEES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_BROKER_PURCHASE_FEES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_LABELS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_PERCENTS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_STOCKS}`,
+    ],
+  });
+
+  const valueRanges = res.data.valueRanges ?? [];
+  const extract = (idx: number): string[] =>
+    (valueRanges[idx]?.values ?? [])
+      .map((row) => row[0]?.trim() ?? "")
+      .filter(Boolean);
+
+  // For labels, preserve empty strings so indices stay aligned with symbols
+  const extractAligned = (idx: number, length: number): string[] => {
+    const raw = valueRanges[idx]?.values ?? [];
+    return Array.from({ length }, (_, i) => raw[i]?.[0]?.trim() ?? "");
+  };
+
+  const symbols = extract(0);
+  const names = extract(1);
+  const sources = extract(2);
+  const currencies = extract(3);
+  const labels = extractAligned(4, symbols.length);
+
+  const stocks: StockDefinition[] = symbols.map((symbol, i) => ({
+    symbol,
+    displayName: names[i] ?? symbol,
+    source: (sources[i] ?? "yahoo") as PriceSource,
+    currency: (currencies[i] ?? "USD") as StockCurrency,
+    label: labels[i] ?? "",
+  }));
+
+  const goalTerms = extract(5);
+  const goalLabels = extract(6);
+  const goalAmounts = extract(7);
+
+  const goals: StockGoal[] = goalTerms.map((term, i) => ({
+    term: term as InvestmentTerm,
+    label: goalLabels[i] ?? "",
+    targetAmount: parseNumber(goalAmounts[i]),
+  }));
+
+  const brokerNames = extract(8);
+  const brokerMgmtFees = extract(9);
+  const brokerPurchaseFees = extract(10);
+
+  const brokers: BrokerConfig[] = brokerNames.map((name, i) => ({
+    name,
+    managementFeePercent: parseFloat(brokerMgmtFees[i]) || 0,
+    purchaseFeePercent: parseFloat(brokerPurchaseFees[i]) || 0,
+  }));
+
+  const allocLabels = extract(11);
+  const allocPercents = extractAligned(12, allocLabels.length);
+  const allocStocks = extractAligned(13, allocLabels.length);
+
+  const labelAllocations: LabelAllocation[] = allocLabels.map((label, i) => ({
+    label,
+    targetPercent: parseFloat(allocPercents[i]) || 0,
+    selectedStock: allocStocks[i] || undefined,
+  }));
+
+  return { stocks, goals, brokers, labelAllocations };
+}
+
+// ---- Generic settings CRUD helpers ----
+
+interface SettingsCrudConfig {
+  spreadsheetId: string;
+  keyColumn: string;
+  startCol: string;
+  endCol: string;
+}
+
+const SUMMARY_CARD_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "F",
+  startCol: "F",
+  endCol: "G",
+};
+
+const RECURRING_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "H",
+  startCol: "H",
+  endCol: "I",
+};
+
+const MAPPING_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "J",
+  startCol: "J",
+  endCol: "K",
+};
+
+const RENAME_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "L",
+  startCol: "L",
+  endCol: "M",
+};
+
+const INCOME_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "N",
+  startCol: "N",
+  endCol: "O",
+};
+
+const STOCK_DEF_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: STOCKS_SPREADSHEET_ID,
+  keyColumn: "A",
+  startCol: "A",
+  endCol: "E",
+};
+
+const BROKER_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: STOCKS_SPREADSHEET_ID,
+  keyColumn: "I",
+  startCol: "I",
+  endCol: "K",
+};
+
+const GOAL_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: STOCKS_SPREADSHEET_ID,
+  keyColumn: "G",
+  startCol: "F",
+  endCol: "H",
+};
+
+async function findFirstEmptySettingsRow(cfg: SettingsCrudConfig): Promise<number> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${SETTINGS_SHEET_NAME}'!${cfg.keyColumn}2:${cfg.keyColumn}100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]?.trim()) return i + 2;
+  }
+  return values.length + 2;
+}
+
+async function findSettingsRow(
+  cfg: SettingsCrudConfig,
+  key: string,
+): Promise<number | null> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${SETTINGS_SHEET_NAME}'!${cfg.keyColumn}2:${cfg.keyColumn}100`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]?.[0]?.trim() === key) return i + 2;
+  }
+  return null;
+}
+
+async function addSettingsRow(
+  cfg: SettingsCrudConfig,
+  values: (string | number)[],
+): Promise<void> {
+  const sheets = getSheets();
+  const row = await findFirstEmptySettingsRow(cfg);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${SETTINGS_SHEET_NAME}'!${cfg.startCol}${row}:${cfg.endCol}${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values.map(String)] },
+  });
+}
+
+async function updateSettingsRow(
+  cfg: SettingsCrudConfig,
+  key: string,
+  values: (string | number)[],
+): Promise<void> {
+  const row = await findSettingsRow(cfg, key);
+  if (row === null) return;
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${SETTINGS_SHEET_NAME}'!${cfg.startCol}${row}:${cfg.endCol}${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values.map(String)] },
+  });
+}
+
+async function removeSettingsRow(
+  cfg: SettingsCrudConfig,
+  key: string,
+): Promise<void> {
+  const row = await findSettingsRow(cfg, key);
+  if (row === null) return;
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${SETTINGS_SHEET_NAME}'!${cfg.startCol}${row}:${cfg.endCol}${row}`,
+  });
+}
+
+export async function addStockDefinition(
+  symbol: string,
+  displayName: string,
+  source: PriceSource,
+  currency: StockCurrency,
+  label: string = "",
+): Promise<void> {
+  await addSettingsRow(STOCK_DEF_CONFIG, [symbol, displayName, source, currency, label]);
+}
+
+export async function updateStockDefinition(
+  oldSymbol: string,
+  symbol: string,
+  displayName: string,
+  source: PriceSource,
+  currency: StockCurrency,
+  label: string = "",
+): Promise<void> {
+  await updateSettingsRow(STOCK_DEF_CONFIG, oldSymbol, [symbol, displayName, source, currency, label]);
+}
+
+export async function removeStockDefinition(symbol: string): Promise<void> {
+  await removeSettingsRow(STOCK_DEF_CONFIG, symbol);
+}
+
+export async function addBrokerConfig(
+  name: string,
+  mgmtFee: number,
+  purchaseFee: number,
+): Promise<void> {
+  await addSettingsRow(BROKER_CONFIG, [name, mgmtFee, purchaseFee]);
+}
+
+export async function updateBrokerConfig(
+  oldName: string,
+  name: string,
+  mgmtFee: number,
+  purchaseFee: number,
+): Promise<void> {
+  await updateSettingsRow(BROKER_CONFIG, oldName, [name, mgmtFee, purchaseFee]);
+}
+
+export async function removeBrokerConfig(name: string): Promise<void> {
+  await removeSettingsRow(BROKER_CONFIG, name);
+}
+
+export async function addStockGoal(
+  term: InvestmentTerm,
+  label: string,
+  targetAmount: number,
+): Promise<void> {
+  await addSettingsRow(GOAL_CONFIG, [term, label, targetAmount]);
+}
+
+export async function updateStockGoal(
+  oldLabel: string,
+  term: InvestmentTerm,
+  label: string,
+  targetAmount: number,
+): Promise<void> {
+  await updateSettingsRow(GOAL_CONFIG, oldLabel, [term, label, targetAmount]);
+}
+
+export async function removeStockGoal(label: string): Promise<void> {
+  await removeSettingsRow(GOAL_CONFIG, label);
+}
+
+// ---- Label allocation persistence ----
+
+export async function saveLabelAllocations(
+  allocations: LabelAllocation[],
+): Promise<void> {
+  const sheets = getSheets();
+  // Clear existing data
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:N100`,
+  });
+  if (allocations.length === 0) return;
+  // Write new data
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:N${allocations.length + 1}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: allocations.map((a) => [
+        a.label,
+        String(a.targetPercent),
+        a.selectedStock ?? "",
+      ]),
+    },
+  });
+}
+
+// ---- Stock transaction sheet ----
+
+/**
+ * Ensure the stock transactions sheet exists. Creates it if missing.
+ */
+export async function ensureStockSheet(): Promise<void> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
+  if (titles.includes(STOCKS_SHEET_NAME)) return;
+
+  const addRes = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: STOCKS_SHEET_NAME,
+              rightToLeft: true,
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  const newSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+  if (newSheetId === undefined) throw new Error("Failed to create stock sheet");
+
+  // Write headers
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A1:J1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [STOCK_SHEET_HEADERS as unknown as string[]] },
+  });
+
+  // Freeze header row
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId: newSheetId,
+              gridProperties: { frozenRowCount: 1 },
+            },
+            fields: "gridProperties.frozenRowCount",
+          },
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Read all stock transactions from the מניות sheet.
+ */
+export async function getStockTransactions(): Promise<StockTransaction[]> {
+  await ensureStockSheet();
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A2:J`,
+  });
+
+  const rows = res.data.values ?? [];
+  return rows
+    .map((row, idx) => ({
+      row: idx + 2,
+      date: row[0] ?? "",
+      type: (row[1] ?? "קניה") as TransactionType,
+      symbol: row[2] ?? "",
+      quantity: parseNumber(row[3]),
+      pricePerUnitILS: parseNumber(row[4]),
+      currency: (row[5] ?? "ILS") as StockCurrency,
+      term: (row[6] ?? "ארוך") as InvestmentTerm,
+      bank: row[7] ?? "",
+      purchaseFee: parseNumber(row[8]),
+      notes: row[9] ?? "",
+    }))
+    .filter((t) => t.symbol);
+}
+
+/**
+ * Add a stock transaction.
+ */
+export async function addStockTransaction(
+  date: string,
+  type: TransactionType,
+  symbol: string,
+  quantity: number,
+  pricePerUnitILS: number,
+  currency: StockCurrency,
+  term: InvestmentTerm,
+  bank: string,
+  purchaseFee: number,
+  notes: string,
+): Promise<number> {
+  await ensureStockSheet();
+  const sheets = getSheets();
+
+  // Find first empty row
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A2:A500`,
+  });
+  const values = res.data.values ?? [];
+  let lastNonEmpty = -1;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] && values[i][0]) lastNonEmpty = i;
+  }
+  const row = lastNonEmpty + 3;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A${row}:J${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          date,
+          type,
+          symbol,
+          String(quantity),
+          pricePerUnitILS.toFixed(2),
+          currency,
+          term,
+          bank,
+          purchaseFee ? purchaseFee.toFixed(2) : "",
+          notes,
+        ],
+      ],
+    },
+  });
+
+  return row;
+}
+
+/**
+ * Update a stock transaction row.
+ */
+export async function updateStockTransaction(
+  row: number,
+  date: string,
+  type: TransactionType,
+  symbol: string,
+  quantity: number,
+  pricePerUnitILS: number,
+  currency: StockCurrency,
+  term: InvestmentTerm,
+  bank: string,
+  purchaseFee: number,
+  notes: string,
+): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A${row}:J${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          date,
+          type,
+          symbol,
+          String(quantity),
+          pricePerUnitILS.toFixed(2),
+          currency,
+          term,
+          bank,
+          purchaseFee ? purchaseFee.toFixed(2) : "",
+          notes,
+        ],
+      ],
+    },
+  });
+}
+
+/**
+ * Delete a stock transaction row.
+ */
+export async function deleteStockTransaction(row: number): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${STOCKS_SHEET_NAME}'!A${row}:J${row}`,
+  });
 }

@@ -13,13 +13,34 @@ import {
   GraduationCap,
   Dumbbell,
   Baby,
+  TrendingUp,
+  PiggyBank,
+  Calculator,
+  PlaneTakeoff,
   type LucideIcon,
   Wallet,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   'סה"כ': CreditCard,
+  'סה"כ הוצאות': CreditCard,
   סהכ: CreditCard,
+  הכנסות: TrendingUp,
+  חיסכון: PiggyBank,
+  "חיסכון שנתי": PiggyBank,
+  "חיסכון חודשי": PiggyBank,
+  "ממוצע חיסכון חודשי": PiggyBank,
+  'סה"כ הכנסות': TrendingUp,
+  'סכ"ה הכנסות': TrendingUp,
+  'סה"כ שנתי': CreditCard,
+  'סה"כ הכנסות שנתי': TrendingUp,
+  'סה"כ הוצאות שנתי': CreditCard,
+  "ממוצע חודשי": Calculator,
+  "ממוצע הכנסה חודשי": TrendingUp,
+  "ממוצע הוצאות חודשי": CreditCard,
+  "הוצאות ללא חופשות": PlaneTakeoff,
+  "ללא חופשות": PlaneTakeoff,
+  "ממוצע ללא חופשות": PlaneTakeoff,
   דיור: Home,
   חופשות: Plane,
   חופשה: Plane,
@@ -43,11 +64,21 @@ export function getSummaryCardIcon(label: string): LucideIcon {
 const currencyFormatter = new Intl.NumberFormat("he-IL", {
   style: "currency",
   currency: "ILS",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 export function formatCurrency(amount: number): string {
+  return currencyFormatter.format(amount);
+}
+
+export function formatCurrencyCompact(amount: number): string {
+  if (Math.abs(amount) >= 1_000_000) {
+    return `₪${(amount / 1_000_000).toFixed(1)}M`;
+  }
+  if (Math.abs(amount) >= 1_000) {
+    return `₪${(amount / 1_000).toFixed(0)}K`;
+  }
   return currencyFormatter.format(amount);
 }
 
@@ -179,16 +210,15 @@ export function getCardOwner(
   cardName: string,
   config?: AppConfig,
 ): "einor" | "ziv" | "shared" {
+  // Check owner suffix first (e.g. "אמקס - זיו" → ziv)
+  if (cardName.includes("זיו")) return "ziv";
+  if (cardName.includes("עינור")) return "einor";
   if (config) {
-    // Strip owner suffix (e.g. "one zero - עינור" → "one zero") for matching
     const baseName = cardName.replace(/ - (עינור|זיו)$/, "");
     if (config.cardsShared.includes(baseName)) return "shared";
     if (config.cardsEinor.includes(baseName)) return "einor";
     if (config.cardsZiv.includes(baseName)) return "ziv";
   }
-  // Fallback: text matching for cards with owner suffix
-  if (cardName.includes("עינור")) return "einor";
-  if (cardName.includes("זיו")) return "ziv";
   return "shared";
 }
 

@@ -1,24 +1,26 @@
 import {
   getMonthlyData,
   listSheets,
-  getAppConfig,
   getVacationRowsForMonth,
   syncVacationRowsToMonthSheet,
 } from "@/lib/google-sheets";
 import {
-  formatCurrency,
-  getCardOwner,
-  getCategoryNames,
-  buildCategoryColorMap,
-  buildCardsWithOwner,
   CARD_OWNER_COLORS,
   OWNER_LABELS,
-  getSummaryCardIcon,
+  getCardOwner,
 } from "@/lib/utils";
+import {
+  loadPageConfig,
+  getCategoryNames,
+  ensureTransactionCardColors,
+} from "@/lib/page-helpers";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
 import { CardBreakdown, type OwnerGroup } from "@/components/card-breakdown";
 import { ExcelImportButton } from "@/components/excel-import-button";
+import { IncomeTable } from "@/components/income-bar";
+import { SummaryCards, type SummaryCardData } from "@/components/summary-cards";
+import { updateMonthIncomeAction } from "@/lib/actions";
 
 interface MonthPageProps {
   params: Promise<{ id: string }>;
@@ -28,18 +30,14 @@ export default async function MonthPage({ params }: MonthPageProps) {
   const { id } = await params;
   const sheetId = parseInt(id, 10);
 
-  const [sheets, config] = await Promise.all([listSheets(), getAppConfig()]);
+  const [sheets, { config, allCards, cardColorMap, colorMap }] =
+    await Promise.all([listSheets(), loadPageConfig()]);
 
   const sheet = sheets.find((s) => s.sheetId === sheetId);
   if (!sheet) throw new Error(`Sheet with id ${sheetId} not found`);
   const title = sheet.title;
 
-  const { cards: allCards, cardColorMap } = buildCardsWithOwner(config);
   const categoryNames = getCategoryNames(config.monthlyCategories);
-  const colorMap = buildCategoryColorMap(
-    config.monthlyCategories,
-    config.vacationCategories,
-  );
 
   // Sync vacation rows into the monthly sheet, then fetch data (includes synced rows)
   const vacationSheets = sheets.filter((s) => s.type === "vacation");
@@ -47,14 +45,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
   await syncVacationRowsToMonthSheet(title, vacationRows);
 
   const data = await getMonthlyData(title, config.summaryCards);
-
-  // Also color cards found in transactions (may not be in config)
-  for (const t of data.transactions) {
-    if (t.card && !cardColorMap[t.card]) {
-      const owner = getCardOwner(t.card, config);
-      cardColorMap[t.card] = CARD_OWNER_COLORS[owner];
-    }
-  }
+  ensureTransactionCardColors(data.transactions, cardColorMap, config);
 
   // Group card breakdown by owner
   const cardsByOwner = new Map<string, { card: string; amount: number }[]>();
@@ -64,56 +55,65 @@ export default async function MonthPage({ params }: MonthPageProps) {
     cardsByOwner.get(owner)!.push(c);
   }
 
+  // Build top summary cards (income row)
+  const topCards: SummaryCardData[] | null =
+    data.income.length > 0
+      ? [
+          {
+            label: 'סה"כ הוצאות',
+            amount: data.summary.total,
+            subtitle: `${data.transactions.length} הוצאות`,
+            gradient: "card-red-gradient",
+          },
+          {
+            label: 'סכ"ה הכנסות',
+            amount: data.totalIncome,
+            subtitle: `${data.income.length} מקורות`,
+            gradient: "card-green-gradient",
+          },
+          {
+            label: "חיסכון חודשי",
+            amount: data.totalIncome - data.summary.total,
+            gradient: "card-purple-gradient",
+          },
+        ]
+      : null;
+
+  // Build custom category summary cards
+  const gradients = [
+    "card-orange-gradient",
+    "card-blue-gradient",
+    "card-purple-gradient",
+  ];
+  const categorySummaryCards: SummaryCardData[] = [
+    ...(data.income.length === 0
+      ? [
+          {
+            label: 'סה"כ הוצאות',
+            amount: data.summary.total,
+            subtitle: `${data.transactions.length}`,
+            gradient: "card-red-gradient",
+          },
+        ]
+      : []),
+    ...data.summary.cards.map((card, i) => ({
+      label: card.label,
+      amount: card.amount,
+      subtitle: `${card.count}`,
+      gradient: gradients[i % gradients.length],
+    })),
+  ];
+
   return (
     <div className="container-fluid px-4 py-3">
       <div className="page-header mb-4">
         <h1 className="h4 fw-bold mb-0">{title}</h1>
       </div>
 
-      {/* Summary cards */}
-      <div className="row g-3 mb-4">
-        {[
-          {
-            label: 'סה"כ',
-            amount: data.summary.total,
-            count: data.transactions.length,
-            gradient: "card-green-gradient",
-          },
-          ...data.summary.cards.map((card, i) => {
-            const gradients = [
-              "card-blue-gradient",
-              "card-purple-gradient",
-              "card-orange-gradient",
-            ];
-            return {
-              label: card.label,
-              amount: card.amount,
-              count: card.count,
-              gradient: gradients[i % gradients.length],
-            };
-          }),
-        ].map((card) => {
-          const Icon = getSummaryCardIcon(card.label);
-          return (
-            <div key={card.label} className="col">
-              <div className={`card ${card.gradient} rounded-3 p-3`}>
-                <div className="d-flex align-items-center gap-2 mb-2">
-                  <span className="summary-card-icon">
-                    <Icon size={18} />
-                  </span>
-                  <span className="small opacity-75">{card.label}</span>
-                </div>
-                <div className="h5 fw-bold mb-0 text-center">
-                  {formatCurrency(card.amount)}
-                </div>
-                <div className="small opacity-75 text-center">
-                  {card.count} הוצאות
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {topCards && <SummaryCards cards={topCards} />}
+      {categorySummaryCards.length > 0 && (
+        <SummaryCards cards={categorySummaryCards} compact />
+      )}
 
       {/* Table + Chart + Card breakdown */}
       <div className="row g-4">
@@ -147,6 +147,17 @@ export default async function MonthPage({ params }: MonthPageProps) {
           </div>
         </div>
         <div className="col-lg-4">
+          {data.income.length > 0 && (
+            <div className="mb-4">
+              <IncomeTable
+                income={data.income}
+                totalIncome={data.totalIncome}
+                totalExpenses={data.summary.total}
+                sheetTitle={title}
+                onUpdateIncome={updateMonthIncomeAction}
+              />
+            </div>
+          )}
           {data.cards.length > 0 && (
             <div className="card rounded-3 border p-3 mb-4">
               <h3 className="h6 fw-bold mb-3">לפי כרטיס</h3>

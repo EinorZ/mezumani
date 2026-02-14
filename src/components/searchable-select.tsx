@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useSearchableDropdown } from "@/hooks/use-searchable-dropdown";
 
 interface SearchableSelectProps {
   options: string[];
@@ -17,121 +17,46 @@ export function SearchableSelect({
   onChange,
   placeholder,
 }: SearchableSelectProps) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [dropUp, setDropUp] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(-1);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-        setSearch("");
-        setHighlightIndex(-1);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (open && inputRef.current) {
-      inputRef.current.focus();
-    }
-    if (open && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setDropUp(spaceBelow < 220);
-    }
-    if (!open) {
-      setHighlightIndex(-1);
-    }
-  }, [open]);
-
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  // Scroll highlighted item into view
-  useEffect(() => {
-    if (highlightIndex >= 0 && listRef.current) {
-      const items = listRef.current.children;
-      if (items[highlightIndex]) {
-        items[highlightIndex].scrollIntoView({ block: "nearest" });
-      }
-    }
-  }, [highlightIndex]);
+  const dd = useSearchableDropdown(options);
 
   function handleSelect(val: string) {
     onChange(val);
-    setOpen(false);
-    setSearch("");
-    setHighlightIndex(-1);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (!open) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      e.stopPropagation();
-      setHighlightIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : 0));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      e.stopPropagation();
-      setHighlightIndex((prev) => (prev > 0 ? prev - 1 : filtered.length - 1));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (highlightIndex >= 0 && highlightIndex < filtered.length) {
-        handleSelect(filtered[highlightIndex]);
-      }
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      setOpen(false);
-      setSearch("");
-      setHighlightIndex(-1);
-    }
+    dd.close();
   }
 
   return (
-    <div ref={containerRef} style={{ position: "relative", minWidth: "120px" }}>
-      {value && !open ? (
+    <div ref={dd.containerRef} style={{ position: "relative", minWidth: "120px" }}>
+      {value && !dd.open ? (
         <span
           className="badge rounded-pill"
           style={{
             backgroundColor: colorMap[value] || "#6c757d",
             cursor: "pointer",
           }}
-          onClick={() => setOpen(true)}
+          onClick={() => dd.setOpen(true)}
         >
           {value}
         </span>
       ) : (
         <input
-          ref={inputRef}
+          ref={dd.inputRef}
           className="form-control form-control-sm"
           placeholder={placeholder}
-          value={search}
+          value={dd.search}
           onChange={(e) => {
-            setSearch(e.target.value);
-            setHighlightIndex(-1);
+            dd.setSearch(e.target.value);
+            dd.setHighlightIndex(-1);
           }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={handleKeyDown}
+          onFocus={() => dd.setOpen(true)}
+          onKeyDown={(e) => dd.handleKeyDown(e, handleSelect)}
         />
       )}
-      {open && (
+      {dd.open && (
         <div
-          ref={listRef}
+          ref={dd.listRef}
           style={{
             position: "absolute",
-            ...(dropUp ? { bottom: "100%" } : { top: "100%" }),
+            ...(dd.dropUp ? { bottom: "100%" } : { top: "100%" }),
             right: 0,
             left: 0,
             zIndex: 1050,
@@ -143,19 +68,19 @@ export function SearchableSelect({
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           }}
         >
-          {filtered.length === 0 ? (
+          {dd.filtered.length === 0 ? (
             <div className="px-2 py-1 text-secondary small">אין תוצאות</div>
           ) : (
-            filtered.map((o, i) => (
+            dd.filtered.map((o, i) => (
               <div
                 key={`${o}-${i}`}
                 className="px-2 py-1"
                 style={{
                   cursor: "pointer",
-                  backgroundColor: i === highlightIndex ? "#e9ecef" : undefined,
+                  backgroundColor: i === dd.highlightIndex ? "#e9ecef" : undefined,
                 }}
                 onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlightIndex(i)}
+                onMouseEnter={() => dd.setHighlightIndex(i)}
                 onClick={() => handleSelect(o)}
               >
                 <span

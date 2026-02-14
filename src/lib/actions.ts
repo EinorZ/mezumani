@@ -31,23 +31,51 @@ import {
   removeExpenseRenameRule,
   batchUpdateFields,
   batchToggleTentativeFlag,
+  addIncomeSource,
+  updateIncomeSource,
+  removeIncomeSource,
+  updateMonthIncome,
+  addStockDefinition,
+  updateStockDefinition,
+  removeStockDefinition,
+  addBrokerConfig,
+  updateBrokerConfig,
+  removeBrokerConfig,
+  addStockGoal,
+  updateStockGoal,
+  removeStockGoal,
+  addStockTransaction as addStockTx,
+  updateStockTransaction as updateStockTx,
+  deleteStockTransaction as deleteStockTx,
+  saveLabelAllocations,
 } from "./google-sheets";
-import type { TransactionInput, RecurringExpense, Transaction } from "./types";
+import { HEBREW_MONTHS } from "./constants";
+import type {
+  TransactionInput,
+  RecurringExpense,
+  IncomeSource,
+  LabelAllocation,
+  PriceSource,
+  StockCurrency,
+  InvestmentTerm,
+  TransactionType,
+} from "./types";
+
+function buildTransactionValues(data: TransactionInput, isVacation = false) {
+  const amount = data.tentative ? "" : String(data.amount);
+  const tentativeAmount = data.tentative ? String(data.amount) : "";
+  if (isVacation) {
+    // Vacation columns: D=card, E=category (swapped vs monthly)
+    return [data.date, data.expense, amount, data.card, data.category, tentativeAmount];
+  }
+  return [data.date, data.expense, amount, data.category, data.card, tentativeAmount];
+}
 
 export async function addTransaction(
   sheetTitle: string,
   data: TransactionInput,
 ): Promise<number> {
-  const values = [
-    data.date,
-    data.expense,
-    data.tentative ? "" : String(data.amount),
-    data.category,
-    data.card,
-    data.tentative ? String(data.amount) : "",
-  ];
-  const row = await appendTransaction(sheetTitle, values);
-  return row;
+  return appendTransaction(sheetTitle, buildTransactionValues(data));
 }
 
 export async function editTransaction(
@@ -55,15 +83,7 @@ export async function editTransaction(
   row: number,
   data: TransactionInput,
 ) {
-  const values = [
-    data.date,
-    data.expense,
-    data.tentative ? "" : String(data.amount),
-    data.category,
-    data.card,
-    data.tentative ? String(data.amount) : "",
-  ];
-  await updateTransaction(sheetTitle, row, values);
+  await updateTransaction(sheetTitle, row, buildTransactionValues(data));
 }
 
 export async function deleteTransaction(sheetTitle: string, row: number) {
@@ -71,21 +91,7 @@ export async function deleteTransaction(sheetTitle: string, row: number) {
 }
 
 export async function createMonth(monthIndex: number, yearSuffix: number) {
-  const months = [
-    "ינואר",
-    "פברואר",
-    "מרץ",
-    "אפריל",
-    "מאי",
-    "יוני",
-    "יולי",
-    "אוגוסט",
-    "ספטמבר",
-    "אוקטובר",
-    "נובמבר",
-    "דצמבר",
-  ];
-  await createMonthSheet(months[monthIndex], yearSuffix);
+  await createMonthSheet(HEBREW_MONTHS[monthIndex], yearSuffix);
   revalidatePath("/");
 }
 
@@ -255,6 +261,34 @@ export async function removeExpenseRenameRuleAction(targetName: string) {
   revalidatePath("/settings");
 }
 
+// ---- Income source actions ----
+
+export async function addIncome(name: string, amount: number) {
+  await addIncomeSource(name, amount);
+  revalidatePath("/settings");
+}
+
+export async function updateIncome(
+  oldName: string,
+  name: string,
+  amount: number,
+) {
+  await updateIncomeSource(oldName, name, amount);
+  revalidatePath("/settings");
+}
+
+export async function removeIncome(name: string) {
+  await removeIncomeSource(name);
+  revalidatePath("/settings");
+}
+
+export async function updateMonthIncomeAction(
+  sheetTitle: string,
+  entries: IncomeSource[],
+) {
+  await updateMonthIncome(sheetTitle, entries);
+}
+
 // ---- Vacation actions ----
 
 export async function createVacation(name: string, yearSuffix: number) {
@@ -267,17 +301,7 @@ export async function addVacationTransaction(
   sheetTitle: string,
   data: TransactionInput,
 ): Promise<number> {
-  // Vacation columns: D=card, E=category (swapped)
-  const values = [
-    data.date,
-    data.expense,
-    data.tentative ? "" : String(data.amount),
-    data.card, // D = card
-    data.category, // E = category
-    data.tentative ? String(data.amount) : "",
-  ];
-  const row = await appendTransaction(sheetTitle, values);
-  return row;
+  return appendTransaction(sheetTitle, buildTransactionValues(data, true));
 }
 
 export async function editVacationTransaction(
@@ -285,24 +309,10 @@ export async function editVacationTransaction(
   row: number,
   data: TransactionInput,
 ) {
-  // Vacation columns: D=card, E=category (swapped)
-  const values = [
-    data.date,
-    data.expense,
-    data.tentative ? "" : String(data.amount),
-    data.card, // D = card
-    data.category, // E = category
-    data.tentative ? String(data.amount) : "",
-  ];
-  await updateTransaction(sheetTitle, row, values);
+  await updateTransaction(sheetTitle, row, buildTransactionValues(data, true));
 }
 
-export async function deleteVacationTransaction(
-  sheetTitle: string,
-  row: number,
-) {
-  await clearTransaction(sheetTitle, row);
-}
+export const deleteVacationTransaction = deleteTransaction;
 
 // ---- Bulk edit ----
 
@@ -329,12 +339,7 @@ export async function bulkDeleteTransactions(
   await Promise.all(rows.map((row) => clearTransaction(sheetTitle, row)));
 }
 
-export async function bulkDeleteVacationTransactions(
-  sheetTitle: string,
-  rows: number[],
-) {
-  await Promise.all(rows.map((row) => clearTransaction(sheetTitle, row)));
-}
+export const bulkDeleteVacationTransactions = bulkDeleteTransactions;
 
 // ---- Batch import ----
 
@@ -379,10 +384,161 @@ export async function bulkToggleTentative(
   await batchToggleTentativeFlag(sheetTitle, rows, tentative);
 }
 
-export async function bulkToggleVacationTentative(
-  sheetTitle: string,
-  rows: number[],
-  tentative: boolean,
+export const bulkToggleVacationTentative = bulkToggleTentative;
+
+// ──────────────────────────────────────────
+// Stock settings actions
+// ──────────────────────────────────────────
+
+export async function addStock(
+  symbol: string,
+  displayName: string,
+  source: PriceSource,
+  currency: StockCurrency,
+  label: string = "",
 ) {
-  await batchToggleTentativeFlag(sheetTitle, rows, tentative);
+  await addStockDefinition(symbol, displayName, source, currency, label);
+  revalidatePath("/settings");
+}
+
+export async function updateStock(
+  oldSymbol: string,
+  symbol: string,
+  displayName: string,
+  source: PriceSource,
+  currency: StockCurrency,
+  label: string = "",
+) {
+  await updateStockDefinition(oldSymbol, symbol, displayName, source, currency, label);
+  revalidatePath("/settings");
+}
+
+export async function removeStock(symbol: string) {
+  await removeStockDefinition(symbol);
+  revalidatePath("/settings");
+}
+
+export async function addBroker(
+  name: string,
+  mgmtFee: number,
+  purchaseFee: number,
+) {
+  await addBrokerConfig(name, mgmtFee, purchaseFee);
+  revalidatePath("/settings");
+}
+
+export async function updateBroker(
+  oldName: string,
+  name: string,
+  mgmtFee: number,
+  purchaseFee: number,
+) {
+  await updateBrokerConfig(oldName, name, mgmtFee, purchaseFee);
+  revalidatePath("/settings");
+}
+
+export async function removeBroker(name: string) {
+  await removeBrokerConfig(name);
+  revalidatePath("/settings");
+}
+
+export async function addGoal(
+  term: InvestmentTerm,
+  label: string,
+  targetAmount: number,
+) {
+  await addStockGoal(term, label, targetAmount);
+  revalidatePath("/settings");
+}
+
+export async function updateGoal(
+  oldLabel: string,
+  term: InvestmentTerm,
+  label: string,
+  targetAmount: number,
+) {
+  await updateStockGoal(oldLabel, term, label, targetAmount);
+  revalidatePath("/settings");
+}
+
+export async function removeGoal(label: string) {
+  await removeStockGoal(label);
+  revalidatePath("/settings");
+}
+
+// ──────────────────────────────────────────
+// Label allocation actions
+// ──────────────────────────────────────────
+
+export async function saveLabelAllocationsAction(
+  allocations: LabelAllocation[],
+) {
+  await saveLabelAllocations(allocations);
+  revalidatePath("/stocks");
+}
+
+// ──────────────────────────────────────────
+// Stock transaction actions
+// ──────────────────────────────────────────
+
+export async function addStockTransactionAction(
+  date: string,
+  type: TransactionType,
+  symbol: string,
+  quantity: number,
+  pricePerUnitILS: number,
+  currency: StockCurrency,
+  term: InvestmentTerm,
+  bank: string,
+  purchaseFee: number,
+  notes: string,
+): Promise<number> {
+  const row = await addStockTx(
+    date,
+    type,
+    symbol,
+    quantity,
+    pricePerUnitILS,
+    currency,
+    term,
+    bank,
+    purchaseFee,
+    notes,
+  );
+  revalidatePath("/stocks");
+  return row;
+}
+
+export async function editStockTransactionAction(
+  row: number,
+  date: string,
+  type: TransactionType,
+  symbol: string,
+  quantity: number,
+  pricePerUnitILS: number,
+  currency: StockCurrency,
+  term: InvestmentTerm,
+  bank: string,
+  purchaseFee: number,
+  notes: string,
+) {
+  await updateStockTx(
+    row,
+    date,
+    type,
+    symbol,
+    quantity,
+    pricePerUnitILS,
+    currency,
+    term,
+    bank,
+    purchaseFee,
+    notes,
+  );
+  revalidatePath("/stocks");
+}
+
+export async function deleteStockTransactionAction(row: number) {
+  await deleteStockTx(row);
+  revalidatePath("/stocks");
 }
