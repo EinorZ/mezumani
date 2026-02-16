@@ -19,7 +19,9 @@ import type {
   InvestmentTerm,
   PortfolioHistoryPoint,
   ChartRange,
+  PortfolioReturns,
 } from "@/lib/types";
+
 import { ALL_TERMS, TERM_LABELS } from "@/lib/constants";
 import { StockHoldingsTable } from "@/components/stock-holdings-table";
 import { StockPieChart, type ChartMode } from "@/components/stock-pie-chart";
@@ -27,6 +29,7 @@ import { LabelAllocationChart } from "@/components/label-allocation-chart";
 import { StockAddPanel } from "@/components/stock-add-panel";
 import { RebalanceCalculator } from "@/components/rebalance-calculator";
 import { PortfolioChart } from "@/components/portfolio-chart";
+import { StockAnnualStats } from "@/components/stock-annual-stats";
 import { revalidatePageAction } from "@/lib/actions";
 
 interface Props {
@@ -34,9 +37,10 @@ interface Props {
   config: StockConfig;
   initialChartData?: PortfolioHistoryPoint[];
   initialChartRange?: ChartRange;
+  portfolioReturns?: PortfolioReturns;
 }
 
-export function StockDashboard({ data, config, initialChartData, initialChartRange = "YTD" }: Props) {
+export function StockDashboard({ data, config, initialChartData, initialChartRange = "YTD", portfolioReturns }: Props) {
   const labelMap = Object.fromEntries(
     config.stocks.filter((s) => s.label).map((s) => [s.symbol, s.label]),
   );
@@ -138,13 +142,18 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       : viewYtdTotalWeight > 0
         ? viewYtdWeightedSum / viewYtdTotalWeight
         : null;
-  const viewYtdPositive = (viewYtd ?? 0) >= 0;
-
   // YTD P&L in ILS: pure price gain per holding = currentValue * ytd% / (100 + ytd%)
   const viewYtdProfitLossILS = viewYtdHoldings.reduce((s, h) => {
     const ytd = h.ytdChangePercent!;
     return s + h.currentValueILS * (ytd / (100 + ytd));
   }, 0);
+
+  // Derive display % from actual ILS P&L so sign is always consistent with the amount
+  const viewYtdDisplay =
+    viewYtdTotalWeight > 0 && viewYtdProfitLossILS !== 0
+      ? (viewYtdProfitLossILS / (viewYtdTotalWeight - viewYtdProfitLossILS)) * 100
+      : viewYtd;
+  const viewYtdPositive = viewYtdProfitLossILS >= 0;
 
   return (
     <>
@@ -277,7 +286,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
                 <span className="small opacity-75">YTD</span>
               </div>
               <div className="h5 fw-bold mb-0 text-center" dir="ltr">
-                {viewYtdPositive ? "+" : ""}
+                {viewYtdProfitLossILS >= 0 ? "+" : ""}
                 {formatCurrency(viewYtdProfitLossILS)}
               </div>
               <div
@@ -286,7 +295,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
                 style={{ fontSize: "0.9rem" }}
               >
                 ({viewYtdPositive ? "+" : ""}
-                {viewYtd.toFixed(1)}%)
+                {(viewYtdDisplay ?? 0).toFixed(1)}%)
               </div>
             </div>
           </div>
@@ -371,6 +380,13 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       {initialChartData && initialChartData.length > 0 && (
         <div className="mt-4">
           <PortfolioChart initialData={initialChartData} initialRange={initialChartRange} />
+        </div>
+      )}
+
+      {/* Portfolio returns */}
+      {portfolioReturns && (
+        <div className="mt-4">
+          <StockAnnualStats returns={portfolioReturns} />
         </div>
       )}
 

@@ -15,6 +15,7 @@ import type {
   BrokerConfig,
   ChartRange,
   PortfolioHistoryPoint,
+  PortfolioReturns,
 } from "./types";
 
 /**
@@ -310,6 +311,7 @@ function computePeriod1(range: ChartRange, transactions: StockTransaction[]): st
 
 export async function getPortfolioHistory(
   range: ChartRange,
+  { downsample = true }: { downsample?: boolean } = {},
 ): Promise<PortfolioHistoryPoint[]> {
   const [config, transactions] = await Promise.all([
     getStockConfig(),
@@ -428,7 +430,7 @@ export async function getPortfolioHistory(
   }
 
   // Downsample for Max range if too many points (> 365 → weekly)
-  if (range === "Max" && history.length > 365) {
+  if (downsample && range === "Max" && history.length > 365) {
     const downsampled: PortfolioHistoryPoint[] = [];
     for (let i = 0; i < history.length; i++) {
       if (i === 0 || i === history.length - 1 || i % 5 === 0) {
@@ -439,4 +441,123 @@ export async function getPortfolioHistory(
   }
 
   return history;
+}
+
+// ── Portfolio Returns (Time-Weighted) ──
+
+/**
+ * Find the index of the closest history point on or before a target date.
+ * Uses binary search for efficiency.
+ */
+function findIndexAt(history: PortfolioHistoryPoint[], targetDate: string): number {
+  let lo = 0;
+  let hi = history.length - 1;
+  let best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (history[mid].date <= targetDate) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * Compute time-weighted return (TWR) over a slice of history points.
+ * Chain-links daily returns, each adjusted for that day's cash flow.
+ * daily_r = (value_today - value_yesterday - flow_today) / value_yesterday
+ * TWR = product(1 + daily_r) - 1
+ */
+function twrForSlice(history: PortfolioHistoryPoint[], fromIdx: number, toIdx: number): number | null {
+  if (fromIdx < 0 || fromIdx >= toIdx) return null;
+  let cumulative = 1;
+  for (let i = fromIdx + 1; i <= toIdx; i++) {
+    const prev = history[i - 1];
+    const cur = history[i];
+    if (prev.value <= 0) continue;
+    const flow = cur.invested - prev.invested;
+    const dailyR = (cur.value - prev.value - flow) / prev.value;
+    cumulative *= 1 + dailyR;
+  }
+  return (cumulative - 1) * 100;
+}
+
+function dateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split("T")[0];
+}
+
+function dateYearsAgo(years: number): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().split("T")[0];
+}
+
+export function computePortfolioReturns(
+  history: PortfolioHistoryPoint[],
+): PortfolioReturns {
+  const empty: PortfolioReturns = {
+    daily: null, mtd: null, ytd: null, periods: [], annual: [],
+  };
+  if (history.length < 2) return empty;
+
+  const lastIdx = history.length - 1;
+  const today = history[lastIdx].date;
+
+  function returnSince(targetDate: string): number | null {
+    const idx = findIndexAt(history, targetDate);
+    if (idx < 0 || idx >= lastIdx) return null;
+    return twrForSlice(history, idx, lastIdx);
+  }
+
+  // Daily: yesterday
+  const daily = returnSince(dateDaysAgo(1));
+
+  // MTD: first of current month
+  const mtdDate = today.substring(0, 8) + "01";
+  const mtd = returnSince(mtdDate);
+
+  // YTD: Jan 1 of current year
+  const ytdDate = today.substring(0, 5) + "01-01";
+  const ytd = returnSince(ytdDate);
+
+  // Fixed periods
+  const periodDefs: { label: string; date: string }[] = [
+    { label: "7 ימים", date: dateDaysAgo(7) },
+    { label: "14 ימים", date: dateDaysAgo(14) },
+    { label: "30 ימים", date: dateDaysAgo(30) },
+    { label: "90 ימים", date: dateDaysAgo(90) },
+    { label: "180 ימים", date: dateDaysAgo(180) },
+    { label: "שנה", date: dateYearsAgo(1) },
+    { label: "שנתיים", date: dateYearsAgo(2) },
+    { label: "3 שנים", date: dateYearsAgo(3) },
+  ];
+  const periods = periodDefs.map(({ label, date }) => ({
+    label,
+    returnPercent: returnSince(date),
+  }));
+
+  // Annual returns: for each calendar year in the data (including current partial year)
+  const firstYear = parseInt(history[0].date.substring(0, 4), 10);
+  const currentYear = parseInt(today.substring(0, 4), 10);
+  const annual: { year: number; returnPercent: number | null }[] = [];
+
+  for (let y = firstYear; y < currentYear; y++) {
+    const yearStart = `${y}-01-01`;
+    const yearEnd = `${y}-12-31`;
+    const startIdx = findIndexAt(history, yearStart);
+    const effectiveStart = startIdx >= 0
+      ? startIdx
+      : history.findIndex((p) => p.date >= yearStart);
+    const endIdx = findIndexAt(history, yearEnd);
+    if (effectiveStart >= 0 && endIdx > effectiveStart) {
+      annual.push({ year: y, returnPercent: twrForSlice(history, effectiveStart, endIdx) });
+    }
+  }
+
+  return { daily, mtd, ytd, periods, annual };
 }

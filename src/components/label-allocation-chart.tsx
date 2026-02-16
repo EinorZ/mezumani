@@ -274,55 +274,120 @@ function TreemapContent(props: TreemapContentProps) {
 }
 
 function TreemapChart({ data }: { data: LabelDataItem[] }) {
-  const treemapData = data.map((d) => ({ ...d, name: d.label } as Record<string, unknown>));
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const visibleData = useMemo(() => {
+    const filtered = data.filter((d) => !hidden.has(d.label));
+    const total = filtered.reduce((s, d) => s + d.value, 0);
+    return filtered.map((d) => ({ ...d, percent: total > 0 ? (d.value / total) * 100 : 0 }));
+  }, [data, hidden]);
+
+  const treemapData = visibleData.map((d) => ({ ...d, name: d.label } as Record<string, unknown>));
   const [tooltip, setTooltip] = useState<{ label: string; percent: number; value: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
+  const handleLegendClick = useCallback((label: string) => {
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    clickTimer.current = setTimeout(() => {
+      setHidden((prev) => {
+        const next = new Set(prev);
+        if (next.has(label)) { next.delete(label); } else {
+          const wouldRemain = data.filter((d) => !next.has(d.label) && d.label !== label);
+          if (wouldRemain.length > 0) next.add(label);
+        }
+        return next;
+      });
+    }, 250);
+  }, [data]);
+
+  const handleLegendDblClick = useCallback((label: string) => {
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    setHidden((prev) => {
+      const visible = data.filter((d) => !prev.has(d.label));
+      if (visible.length === 1 && visible[0].label === label) {
+        return new Set();
+      }
+      return new Set(data.filter((d) => d.label !== label).map((d) => d.label));
+    });
+  }, [data]);
+
   return (
-    <div
-      style={{ width: "100%", height: 200 }}
-      onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <Treemap
-          data={treemapData}
-          dataKey="value"
-          aspectRatio={4 / 3}
-          stroke="#fff"
-          content={
-            <TreemapContent
-              x={0} y={0} width={0} height={0}
-              label="" percent={0} color="" depth={0} value={0}
-              onHover={setTooltip}
-            />
-          }
-        >
-          {data.map((item, index) => (
-            <Cell key={`cell-${index}`} fill={item.color} />
-          ))}
-        </Treemap>
-      </ResponsiveContainer>
-      {tooltip && (
-        <div
-          className="card rounded-2 border shadow-sm p-2"
-          style={{
-            position: "fixed",
-            top: mousePos.y - 50,
-            left: mousePos.x + 14,
-            background: "#fff",
-            fontSize: "0.78rem",
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
-            zIndex: 9999,
-          }}
-        >
-          <div className="fw-bold">{tooltip.label}</div>
-          <div className="text-muted">
-            {tooltip.percent.toFixed(1)}% · {formatCurrencyCompact(tooltip.value)}
+    <>
+      <div
+        style={{ width: "100%", height: 200 }}
+        onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <Treemap
+            data={treemapData}
+            dataKey="value"
+            aspectRatio={4 / 3}
+            stroke="#fff"
+            content={
+              <TreemapContent
+                x={0} y={0} width={0} height={0}
+                label="" percent={0} color="" depth={0} value={0}
+                onHover={setTooltip}
+              />
+            }
+          >
+            {visibleData.map((item, index) => (
+              <Cell key={`cell-${index}`} fill={item.color} />
+            ))}
+          </Treemap>
+        </ResponsiveContainer>
+        {tooltip && (
+          <div
+            className="card rounded-2 border shadow-sm p-2"
+            style={{
+              position: "fixed",
+              top: mousePos.y - 50,
+              left: mousePos.x + 14,
+              background: "#fff",
+              fontSize: "0.78rem",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+              zIndex: 9999,
+            }}
+          >
+            <div className="fw-bold">{tooltip.label}</div>
+            <div className="text-muted">
+              {tooltip.percent.toFixed(1)}% · {formatCurrencyCompact(tooltip.value)}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+
+      {/* Legend with filtering */}
+      <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
+        {data.map((item) => {
+          const isHidden = hidden.has(item.label);
+          return (
+            <div
+              key={item.label}
+              className="d-flex align-items-center gap-1"
+              style={{
+                fontSize: "0.72rem",
+                opacity: isHidden ? 0.35 : 1,
+                transition: "opacity 150ms ease",
+                cursor: "pointer",
+                textDecoration: isHidden ? "line-through" : "none",
+                userSelect: "none",
+              }}
+              onClick={() => handleLegendClick(item.label)}
+              onDoubleClick={() => handleLegendDblClick(item.label)}
+            >
+              <span
+                className="rounded-circle flex-shrink-0"
+                style={{ width: 8, height: 8, backgroundColor: isHidden ? "#ccc" : item.color }}
+              />
+              <span>{item.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 

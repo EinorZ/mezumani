@@ -240,6 +240,14 @@ export interface PortfolioHistoryPoint {
   invested: number;   // total invested up to this date in ILS
 }
 
+export interface PortfolioReturns {
+  daily: number | null;
+  mtd: number | null;
+  ytd: number | null;
+  periods: { label: string; returnPercent: number | null }[];
+  annual: { year: number; returnPercent: number | null }[];
+}
+
 export interface StockDashboardData {
   holdings: StockHolding[];
   byTerm: StockTermGroup[];
