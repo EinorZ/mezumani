@@ -1,5 +1,10 @@
 import { getStockConfig, getStockTransactions } from "./google-sheets";
-import { fetchAllPrices, fetchUsdToIls } from "./stock-prices";
+import {
+  fetchAllPrices,
+  fetchYTDStartPrices,
+  fetchUsdToIls,
+  fetchHistoricalPrices,
+} from "./stock-prices";
 import type {
   StockDashboardData,
   StockHolding,
@@ -8,6 +13,8 @@ import type {
   StockDefinition,
   InvestmentTerm,
   BrokerConfig,
+  ChartRange,
+  PortfolioHistoryPoint,
 } from "./types";
 
 /**
@@ -20,7 +27,10 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
     fetchUsdToIls(),
   ]);
 
-  const prices = await fetchAllPrices(config.stocks);
+  const [prices, ytdStartPrices] = await Promise.all([
+    fetchAllPrices(config.stocks),
+    fetchYTDStartPrices(config.stocks),
+  ]);
   const stockMap = new Map(config.stocks.map((s) => [s.symbol, s]));
   const brokerMap = new Map(config.brokers.map((b) => [b.name, b]));
 
@@ -42,7 +52,7 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
     const stockDef = stockMap.get(first.symbol);
     if (!stockDef) continue;
 
-    const holding = computeHolding(txs, stockDef, prices, usdToIls, brokerMap);
+    const holding = computeHolding(txs, stockDef, prices, ytdStartPrices, usdToIls, brokerMap);
     if (holding.totalShares > 0) {
       holdings.push(holding);
     }
@@ -98,6 +108,19 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
   const estimatedCapitalGainsTax =
     totalProfitLoss > 0 ? totalProfitLoss * 0.25 : 0;
 
+  // Portfolio-level YTD: weighted average by current value
+  const holdingsWithYtd = holdings.filter((h) => h.ytdChangePercent !== null);
+  const ytdWeightedSum = holdingsWithYtd.reduce(
+    (s, h) => s + h.ytdChangePercent! * h.currentValueILS,
+    0,
+  );
+  const ytdTotalWeight = holdingsWithYtd.reduce(
+    (s, h) => s + h.currentValueILS,
+    0,
+  );
+  const portfolioYtd =
+    ytdTotalWeight > 0 ? ytdWeightedSum / ytdTotalWeight : null;
+
   // Currency exposure
   const usdHoldingsILS = holdings
     .filter((h) => h.currency === "USD")
@@ -116,6 +139,7 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
       totalProfitLoss,
       totalProfitLossPercent,
       estimatedCapitalGainsTax,
+      ytdChangePercent: portfolioYtd,
     },
     currencyExposure: {
       usd: {
@@ -142,6 +166,7 @@ function computeHolding(
   txs: StockTransaction[],
   stockDef: StockDefinition,
   prices: Map<string, number>,
+  ytdStartPrices: Map<string, number>,
   usdToIls: number,
   brokerMap: Map<string, BrokerConfig>,
 ): StockHolding {
@@ -186,6 +211,14 @@ function computeHolding(
   const profitLossPercent =
     totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
 
+  // YTD: compare current price vs start-of-year price (in original currency)
+  const ytdStartPrice = ytdStartPrices.get(stockDef.symbol);
+  const currentPriceRawForYtd = prices.get(stockDef.symbol) ?? 0;
+  const ytdChangePercent =
+    ytdStartPrice && ytdStartPrice > 0 && currentPriceRawForYtd > 0
+      ? ((currentPriceRawForYtd - ytdStartPrice) / ytdStartPrice) * 100
+      : null;
+
   return {
     symbol: stockDef.symbol,
     displayName: stockDef.displayName,
@@ -200,6 +233,7 @@ function computeHolding(
     currentValueILS,
     profitLoss,
     profitLossPercent,
+    ytdChangePercent,
     bank: primaryBank,
     currency: stockDef.currency,
     label: stockDef.label,
@@ -223,4 +257,186 @@ function estimateQuarters(dateStr?: string): number {
   const diffMs = now.getTime() - purchaseDate.getTime();
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
   return Math.max(0, Math.floor(diffDays / 90));
+}
+
+// ── Portfolio History ──
+
+/** Parse DD/MM/YY transaction date to YYYY-MM-DD */
+function txDateToISO(dateStr: string): string {
+  const parts = dateStr.split("/");
+  if (parts.length < 2) return "";
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const yearPart = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear() % 100;
+  const year = yearPart < 100 ? 2000 + yearPart : yearPart;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function computePeriod1(range: ChartRange, transactions: StockTransaction[]): string {
+  const now = new Date();
+  let d: Date;
+  switch (range) {
+    case "1M":
+      d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      break;
+    case "6M":
+      d = new Date(now);
+      d.setMonth(d.getMonth() - 6);
+      break;
+    case "YTD":
+      d = new Date(now.getFullYear(), 0, 1);
+      break;
+    case "1Y":
+      d = new Date(now);
+      d.setFullYear(d.getFullYear() - 1);
+      break;
+    case "Max": {
+      // Find earliest transaction date
+      let earliest = now;
+      for (const tx of transactions) {
+        const iso = txDateToISO(tx.date);
+        if (iso) {
+          const txd = new Date(iso);
+          if (txd < earliest) earliest = txd;
+        }
+      }
+      d = earliest;
+      break;
+    }
+  }
+  return d.toISOString().split("T")[0];
+}
+
+export async function getPortfolioHistory(
+  range: ChartRange,
+): Promise<PortfolioHistoryPoint[]> {
+  const [config, transactions] = await Promise.all([
+    getStockConfig(),
+    getStockTransactions(),
+  ]);
+
+  if (transactions.length === 0) return [];
+
+  const period1 = computePeriod1(range, transactions);
+  const period2 = new Date().toISOString().split("T")[0];
+
+  const { prices, usdIls } = await fetchHistoricalPrices(
+    config.stocks,
+    period1,
+    period2,
+  );
+
+  const stockMap = new Map(config.stocks.map((s) => [s.symbol, s]));
+
+  // Build USD/ILS lookup by date
+  const usdIlsByDate = new Map<string, number>();
+  for (const point of usdIls) {
+    usdIlsByDate.set(point.date, point.price);
+  }
+
+  // Collect all unique dates across all stocks
+  const allDatesSet = new Set<string>();
+  for (const [, points] of prices) {
+    for (const p of points) allDatesSet.add(p.date);
+  }
+  for (const p of usdIls) allDatesSet.add(p.date);
+
+  const allDates = [...allDatesSet].sort();
+  if (allDates.length === 0) return [];
+
+  // Build price lookup per stock: date → price
+  const stockPriceByDate = new Map<string, Map<string, number>>();
+  for (const [symbol, points] of prices) {
+    const dateMap = new Map<string, number>();
+    for (const p of points) dateMap.set(p.date, p.price);
+    stockPriceByDate.set(symbol, dateMap);
+  }
+
+  // Sort transactions by date for replay
+  const sortedTxs = [...transactions].sort((a, b) => {
+    const aIso = txDateToISO(a.date);
+    const bIso = txDateToISO(b.date);
+    return aIso.localeCompare(bIso);
+  });
+
+  // Convert tx dates to ISO for comparison
+  const txsWithISO = sortedTxs.map((tx) => ({
+    ...tx,
+    isoDate: txDateToISO(tx.date),
+  }));
+
+  const history: PortfolioHistoryPoint[] = [];
+  const sharesHeld = new Map<string, number>(); // symbol → shares
+  const investedBySymbol = new Map<string, number>(); // symbol → total invested ILS
+  let txIndex = 0;
+  let lastUsdIls = 3.6; // fallback
+
+  for (const date of allDates) {
+    // Replay transactions up to this date
+    while (txIndex < txsWithISO.length && txsWithISO[txIndex].isoDate <= date) {
+      const tx = txsWithISO[txIndex];
+      const currentShares = sharesHeld.get(tx.symbol) ?? 0;
+      const currentInvested = investedBySymbol.get(tx.symbol) ?? 0;
+      const txTotalILS = tx.pricePerUnitILS * tx.quantity;
+
+      if (tx.type === "קניה") {
+        sharesHeld.set(tx.symbol, currentShares + tx.quantity);
+        investedBySymbol.set(tx.symbol, currentInvested + txTotalILS);
+      } else {
+        sharesHeld.set(tx.symbol, Math.max(0, currentShares - tx.quantity));
+        // Don't reduce invested — this tracks cost basis
+      }
+      txIndex++;
+    }
+
+    // Get USD/ILS rate for this date (use most recent available)
+    const usdRate = usdIlsByDate.get(date);
+    if (usdRate) lastUsdIls = usdRate;
+
+    // Compute portfolio value
+    let totalValue = 0;
+    let totalInvested = 0;
+
+    for (const [symbol, shares] of sharesHeld) {
+      if (shares <= 0) continue;
+      const stockDef = stockMap.get(symbol);
+      if (!stockDef) continue;
+
+      // Find price for this date (use last known price if exact date missing)
+      const priceMap = stockPriceByDate.get(symbol);
+      let price = priceMap?.get(date) ?? 0;
+
+      // If no price for exact date, find most recent before this date
+      if (price === 0 && priceMap) {
+        for (const [pDate, pPrice] of priceMap) {
+          if (pDate <= date && pPrice > 0) price = pPrice;
+        }
+      }
+
+      if (price <= 0) continue;
+
+      const priceILS = stockDef.currency === "USD" ? price * lastUsdIls : price;
+      totalValue += shares * priceILS;
+      totalInvested += investedBySymbol.get(symbol) ?? 0;
+    }
+
+    // Only add points where we have meaningful data
+    if (totalValue > 0) {
+      history.push({ date, value: Math.round(totalValue), invested: Math.round(totalInvested) });
+    }
+  }
+
+  // Downsample for Max range if too many points (> 365 → weekly)
+  if (range === "Max" && history.length > 365) {
+    const downsampled: PortfolioHistoryPoint[] = [];
+    for (let i = 0; i < history.length; i++) {
+      if (i === 0 || i === history.length - 1 || i % 5 === 0) {
+        downsampled.push(history[i]);
+      }
+    }
+    return downsampled;
+  }
+
+  return history;
 }

@@ -6,7 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
 import { TERM_COLORS, TERM_TEXT_COLORS, TERM_LABELS_SHORT } from "@/lib/constants";
 
-type SortKey = "name" | "value" | "pnl" | "quantity";
+type SortKey = "name" | "value" | "pnl" | "ytd" | "quantity";
 type SortDir = "asc" | "desc";
 
 interface Props {
@@ -30,6 +30,9 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
           break;
         case "pnl":
           cmp = a.profitLoss - b.profitLoss;
+          break;
+        case "ytd":
+          cmp = (a.ytdChangePercent ?? -Infinity) - (b.ytdChangePercent ?? -Infinity);
           break;
         case "quantity":
           cmp = a.totalShares - b.totalShares;
@@ -106,6 +109,13 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
           >
             רווח/הפסד{sortArrow("pnl")}
           </span>
+          <span
+            className="tx-header-col"
+            style={{ flex: 0.7 }}
+            onClick={() => handleSort("ytd")}
+          >
+            YTD{sortArrow("ytd")}
+          </span>
         </div>
         {filtered.map((h) => (
           <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
@@ -136,7 +146,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
   const [expanded, setExpanded] = useState(false);
   const isPositive = h.profitLoss >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
-  const hasTxs = h.transactions.length > 1;
+  const hasTxs = h.transactions.length >= 1;
 
   return (
     <>
@@ -203,6 +213,23 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
             <bdi>({isPositive ? "+" : "-"}{Math.abs(h.profitLossPercent).toFixed(1)}%)</bdi>
           </span>
         </span>
+        <span
+          style={{
+            flex: 0.7,
+            color:
+              h.ytdChangePercent === null
+                ? undefined
+                : h.ytdChangePercent >= 0
+                  ? "#198754"
+                  : "#dc3545",
+          }}
+          className="fw-medium small"
+          dir="ltr"
+        >
+          {h.ytdChangePercent === null
+            ? "—"
+            : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(1)}%`}
+        </span>
       </div>
       {expanded && (
         <div style={{ backgroundColor: "#f8f9fa", padding: "0.5rem 1.5rem 0.75rem 1.5rem" }}>
@@ -256,7 +283,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
   const [expanded, setExpanded] = useState(false);
   const isPositive = h.profitLoss >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
-  const hasTxs = h.transactions.length > 1;
+  const hasTxs = h.transactions.length >= 1;
 
   return (
     <div className="d-flex align-items-start mb-2" style={{ gap: "0.4rem" }}>
@@ -320,6 +347,18 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
               {h.profitLossPercent.toFixed(1)}% ({isPositive ? "+" : ""}
               {formatCurrency(h.profitLoss)})
             </div>
+            {h.ytdChangePercent !== null && (
+              <div
+                style={{
+                  color: h.ytdChangePercent >= 0 ? "#198754" : "#dc3545",
+                  fontSize: "0.7rem",
+                }}
+                dir="ltr"
+              >
+                YTD: {h.ytdChangePercent >= 0 ? "+" : ""}
+                {h.ytdChangePercent.toFixed(1)}%
+              </div>
+            )}
           </div>
         </div>
 

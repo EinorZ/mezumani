@@ -59,6 +59,8 @@ import type {
   StockCurrency,
   InvestmentTerm,
   TransactionType,
+  ChartRange,
+  PortfolioHistoryPoint,
 } from "./types";
 
 function buildTransactionValues(data: TransactionInput, isVacation = false) {
@@ -541,4 +543,15 @@ export async function editStockTransactionAction(
 export async function deleteStockTransactionAction(row: number) {
   await deleteStockTx(row);
   revalidatePath("/stocks");
+}
+
+// ──────────────────────────────────────────
+// Portfolio history action
+// ──────────────────────────────────────────
+
+export async function getPortfolioHistoryAction(
+  range: ChartRange,
+): Promise<PortfolioHistoryPoint[]> {
+  const { getPortfolioHistory } = await import("./stock-dashboard");
+  return getPortfolioHistory(range);
 }

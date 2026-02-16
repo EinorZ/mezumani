@@ -213,6 +213,7 @@ export interface StockHolding {
   currentValueILS: number;
   profitLoss: number;
   profitLossPercent: number;
+  ytdChangePercent: number | null;
   bank: string;
   currency: StockCurrency;
   label: string;
@@ -231,6 +232,14 @@ export interface StockTermGroup {
   goals: StockGoal[];
 }
 
+export type ChartRange = "1M" | "6M" | "YTD" | "1Y" | "Max";
+
+export interface PortfolioHistoryPoint {
+  date: string;       // YYYY-MM-DD
+  value: number;      // portfolio value in ILS
+  invested: number;   // total invested up to this date in ILS
+}
+
 export interface StockDashboardData {
   holdings: StockHolding[];
   byTerm: StockTermGroup[];
@@ -241,6 +250,7 @@ export interface StockDashboardData {
     totalProfitLoss: number;
     totalProfitLossPercent: number;
     estimatedCapitalGainsTax: number;
+    ytdChangePercent: number | null;
   };
   currencyExposure: {
     usd: { amountILS: number; percent: number };
