@@ -136,6 +136,26 @@ export async function renameSheet(
   });
 }
 
+export async function moveSheet(
+  sheetId: number,
+  newIndex: number,
+): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: { sheetId, index: newIndex },
+            fields: "index",
+          },
+        },
+      ],
+    },
+  });
+}
+
 /**
  * Fetch all data for a monthly sheet.
  * Computes summary, category breakdown, and card breakdown from raw transactions.
@@ -2447,5 +2467,214 @@ export async function deleteStockTransaction(row: number): Promise<void> {
   await sheets.spreadsheets.values.clear({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
     range: `'${STOCKS_SHEET_NAME}'!A${row}:J${row}`,
+  });
+}
+
+// ──────────────────────────────────────────
+// NVIDIA RSU sheets
+// ──────────────────────────────────────────
+
+const RSU_SHEET_NAME = "nvidia";
+
+const RSU_HEADERS = [
+  "תאריך מענק",
+  "סה\"כ מניות במענק",
+  "תאריך הבשלה",
+  "כמות",
+  "מחיר הענקה $",
+  "הערות",
+  "שם מענק",
+  "נמכר",
+  "",
+  "ברוטו עד כה",
+  "משכורת חודשית",
+  "הפרשה חודשית ESPP",
+];
+
+async function ensureSheetInStocksSpreadsheet(
+  sheetName: string,
+  headers: string[],
+  endCol: string,
+): Promise<void> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    fields: "sheets.properties.title,sheets.properties.sheetId",
+  });
+  const existing = res.data.sheets ?? [];
+  const found = existing.find((s) => s.properties?.title === sheetName);
+  if (found) {
+    // Always sync headers on existing sheets
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: STOCKS_SPREADSHEET_ID,
+      range: `'${sheetName}'!A1:${endCol}1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [headers] },
+    });
+    return;
+  }
+
+  const addRes = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: { title: sheetName, rightToLeft: true },
+          },
+        },
+      ],
+    },
+  });
+
+  const newSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${sheetName}'!A1:${endCol}1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [headers] },
+  });
+
+  if (newSheetId !== undefined) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: STOCKS_SPREADSHEET_ID,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: {
+                sheetId: newSheetId,
+                gridProperties: { frozenRowCount: 1 },
+              },
+              fields: "gridProperties.frozenRowCount",
+            },
+          },
+        ],
+      },
+    });
+  }
+}
+
+export async function ensureRsuSheet(): Promise<void> {
+  await ensureSheetInStocksSpreadsheet(RSU_SHEET_NAME, RSU_HEADERS, "L");
+}
+
+export async function getRsuGrossData(): Promise<{ grossSoFar: number; monthlySalary: number; esppMonthlyContribution: number; esppPurchasePrice: number }> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!J2:M2`,
+  });
+  const row = res.data.values?.[0] ?? [];
+  return {
+    grossSoFar: parseFloat(String(row[0] ?? "").replace(/,/g, "")) || 0,
+    monthlySalary: parseFloat(String(row[1] ?? "").replace(/,/g, "")) || 0,
+    esppMonthlyContribution: parseFloat(String(row[2] ?? "").replace(/,/g, "")) || 0,
+    esppPurchasePrice: parseFloat(String(row[3] ?? "").replace(/,/g, "")) || 0,
+  };
+}
+
+export async function setRsuGrossData(grossSoFar: number, monthlySalary: number, esppMonthlyContribution: number, esppPurchasePrice: number): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!J2:M2`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[grossSoFar || "", monthlySalary || "", esppMonthlyContribution || "", esppPurchasePrice || ""]] },
+  });
+}
+
+// ── Read functions ──
+
+import type { RsuVest } from "./types";
+
+export async function getRsuTransactions(): Promise<RsuVest[]> {
+  await ensureRsuSheet();
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!A2:H`,
+  });
+
+  const rows = res.data.values ?? [];
+  return rows
+    .map((row, idx) => ({
+      row: idx + 2,
+      grantDate: row[0] ?? "",
+      totalSharesInGrant: parseNumber(row[1]),
+      vestDate: row[2] ?? "",
+      shares: parseNumber(row[3]),
+      vestPriceUsd: row[4] ? parseNumber(row[4]) : null,
+      notes: row[5] ?? "",
+      grantName: row[6] ?? "",
+      sold: (row[7] ?? "").toUpperCase() === "TRUE",
+    }))
+    .filter((r) => r.grantDate || r.vestDate);
+}
+
+// ── Write functions ──
+
+async function findFirstEmptyRowInSheet(
+  sheetName: string,
+  spreadsheetId: string,
+): Promise<number> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${sheetName}'!A2:A500`,
+  });
+  const values = res.data.values ?? [];
+  let lastNonEmpty = -1;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] && values[i][0]) lastNonEmpty = i;
+  }
+  return lastNonEmpty + 3;
+}
+
+export async function addRsuVestRows(
+  rows: string[][],
+): Promise<void> {
+  await ensureRsuSheet();
+  const sheets = getSheets();
+  const startRow = await findFirstEmptyRowInSheet(RSU_SHEET_NAME, STOCKS_SPREADSHEET_ID);
+  const data = rows.map((row, i) => ({
+    range: `'${RSU_SHEET_NAME}'!A${startRow + i}:H${startRow + i}`,
+    values: [row],
+  }));
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+export async function updateRsuRow(
+  row: number,
+  values: string[],
+): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!A${row}:H${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+}
+
+export async function toggleRsuSold(row: number, sold: boolean): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!H${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[sold ? "TRUE" : ""]] },
+  });
+}
+
+export async function deleteRsuRow(row: number): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${RSU_SHEET_NAME}'!A${row}:H${row}`,
   });
 }

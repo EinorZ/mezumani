@@ -94,7 +94,7 @@ function TermCard({ group }: { group: StockTermGroup; usdToIls: number }) {
           <span style={{ color: pnlColor }} dir="ltr">
             {isPositive ? "+" : ""}
             {formatCurrency(group.profitLoss)} ({isPositive ? "+" : ""}
-            {group.profitLossPercent.toFixed(1)}%)
+            {group.profitLossPercent.toFixed(2)}%)
           </span>
         </div>
       </div>
@@ -146,7 +146,7 @@ function TermCard({ group }: { group: StockTermGroup; usdToIls: number }) {
               className="d-flex justify-content-between small mb-1"
             >
               <span dir="ltr">{h.symbol}</span>
-              <span className="text-muted">{h.totalShares} יח&apos;</span>
+              <span className="text-muted">{h.totalShares.toFixed(2)} יח&apos;</span>
               <span className="fw-bold">
                 {formatCurrency(h.currentValueILS)}
               </span>

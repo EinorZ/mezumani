@@ -276,15 +276,17 @@ export async function fetchAllPrices(
   const prices = new Map<string, number>();
 
   const results = await Promise.allSettled(
-    stocks.map(async (stock) => {
-      let price: number;
-      if (stock.source === "yahoo") {
-        price = await fetchUSStockPrice(stock.symbol);
-      } else {
-        price = await fetchIsraeliStockPrice(stock.symbol);
-      }
-      return { symbol: stock.symbol, price };
-    }),
+    stocks
+      .filter((s) => s.source !== "manual")
+      .map(async (stock) => {
+        let price: number;
+        if (stock.source === "yahoo") {
+          price = await fetchUSStockPrice(stock.symbol);
+        } else {
+          price = await fetchIsraeliStockPrice(stock.symbol);
+        }
+        return { symbol: stock.symbol, price };
+      }),
   );
 
   for (const result of results) {

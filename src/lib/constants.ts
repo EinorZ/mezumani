@@ -110,6 +110,16 @@ export const TERM_TEXT_COLORS: Record<InvestmentTerm, string> = {
 
 // --- Chart palette ---
 
+/** Deterministic color for a label — same label always gets the same color. */
+export function getLabelColor(label: string): string {
+  if (!label) return CHART_COLORS[CHART_COLORS.length - 1];
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) {
+    hash = (hash * 31 + label.charCodeAt(i)) | 0;
+  }
+  return CHART_COLORS[Math.abs(hash) % CHART_COLORS.length];
+}
+
 export const CHART_COLORS = [
   "#198754", // green
   "#0d6efd", // blue

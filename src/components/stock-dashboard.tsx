@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -22,7 +22,7 @@ import type {
   PortfolioReturns,
 } from "@/lib/types";
 
-import { ALL_TERMS, TERM_LABELS } from "@/lib/constants";
+import { TERM_LABELS } from "@/lib/constants";
 import { StockHoldingsTable } from "@/components/stock-holdings-table";
 import { StockPieChart, type ChartMode } from "@/components/stock-pie-chart";
 import { LabelAllocationChart } from "@/components/label-allocation-chart";
@@ -30,7 +30,8 @@ import { StockAddPanel } from "@/components/stock-add-panel";
 import { RebalanceCalculator } from "@/components/rebalance-calculator";
 import { PortfolioChart } from "@/components/portfolio-chart";
 import { StockAnnualStats } from "@/components/stock-annual-stats";
-import { revalidatePageAction } from "@/lib/actions";
+import { revalidatePageAction, getPortfolioHistoryAction, getPortfolioReturnsAction } from "@/lib/actions";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface Props {
   data: StockDashboardData;
@@ -44,7 +45,10 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
   const labelMap = Object.fromEntries(
     config.stocks.filter((s) => s.label).map((s) => [s.symbol, s.label]),
   );
+  // Only show tabs for terms that have goals defined in settings
+  const goalTerms = [...new Set(config.goals.map((g) => g.term))];
   const [panelOpen, setPanelOpen] = useState(false);
+
   const [panelDefaults, setPanelDefaults] = useState<{
     symbol?: string;
     type?: "קניה" | "מכירה";
@@ -52,6 +56,27 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
   const [refreshing, setRefreshing] = useState(false);
   const [viewTerm, setViewTerm] = useState<InvestmentTerm | "all">("all");
   const [chartMode, setChartMode] = useState<ChartMode>("donut");
+
+  // Collapsible performance section
+  const [perfOpen, setPerfOpen] = useState(false);
+  const [perfChartData, setPerfChartData] = useState<PortfolioHistoryPoint[]>(initialChartData ?? []);
+  const [perfReturns, setPerfReturns] = useState<PortfolioReturns | null>(portfolioReturns ?? null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const perfChartRange = useRef<ChartRange>(initialChartRange);
+
+  // Re-fetch performance data when the section is open and term changes
+  useEffect(() => {
+    if (!perfOpen) return;
+    const term = viewTerm === "all" ? undefined : viewTerm;
+    setPerfLoading(true);
+    Promise.all([
+      getPortfolioHistoryAction(perfChartRange.current, term),
+      getPortfolioReturnsAction(term),
+    ]).then(([history, returns]) => {
+      setPerfChartData(history);
+      setPerfReturns(returns);
+    }).finally(() => setPerfLoading(false));
+  }, [viewTerm, perfOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { totals, usdToIls, lastUpdated } = data;
   const isPositive = totals.totalProfitLoss >= 0;
@@ -175,7 +200,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
             >
               {isPositive ? "+" : ""}
               {formatCurrency(totals.totalProfitLoss)} ({isPositive ? "+" : ""}
-              {totals.totalProfitLossPercent.toFixed(1)}%)
+              {totals.totalProfitLossPercent.toFixed(2)}%)
             </span>
           </div>
 
@@ -205,7 +230,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
         >
           הכל
         </button>
-        {ALL_TERMS.map((term) => (
+        {goalTerms.map((term) => (
           <button
             key={term}
             className={`btn btn-sm rounded-pill ${viewTerm === term ? "btn-dark" : "btn-outline-secondary"}`}
@@ -261,7 +286,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
               style={{ fontSize: "0.9rem" }}
             >
               ({viewIsPositive ? "+" : ""}
-              {viewTotals.totalProfitLossPercent.toFixed(1)}%)
+              {viewTotals.totalProfitLossPercent.toFixed(2)}%)
             </div>
             {viewTotals.totalFees > 0 && (
               <div className="small text-center opacity-75 mt-1">
@@ -295,7 +320,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
                 style={{ fontSize: "0.9rem" }}
               >
                 ({viewYtdPositive ? "+" : ""}
-                {(viewYtdDisplay ?? 0).toFixed(1)}%)
+                {(viewYtdDisplay ?? 0).toFixed(2)}%)
               </div>
             </div>
           </div>
@@ -376,17 +401,38 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
         onAddTransaction={() => openPanel()}
       />
 
-      {/* Portfolio performance chart */}
-      {initialChartData && initialChartData.length > 0 && (
-        <div className="mt-4">
-          <PortfolioChart initialData={initialChartData} initialRange={initialChartRange} />
-        </div>
-      )}
-
-      {/* Portfolio returns */}
-      {portfolioReturns && (
-        <div className="mt-4">
-          <StockAnnualStats returns={portfolioReturns} />
+      {/* Collapsible performance section */}
+      {(initialChartData || portfolioReturns) && (
+        <div className="card rounded-3 border mt-4 overflow-hidden">
+          <div
+            className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
+            style={{ cursor: "pointer" }}
+            onClick={() => setPerfOpen((v) => !v)}
+          >
+            <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+              ביצועי תיק
+            </span>
+            <div className="d-flex align-items-center gap-2">
+              {perfLoading && <span className="spinner-border spinner-border-sm text-muted" style={{ width: 14, height: 14, borderWidth: 2 }} />}
+              {perfOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+          </div>
+          {perfOpen && (
+            <div className="p-3">
+              {perfChartData.length > 0 && (
+                <PortfolioChart
+                  key={viewTerm}
+                  initialData={perfChartData}
+                  initialRange={perfChartRange.current}
+                  term={viewTerm === "all" ? undefined : viewTerm}
+                />
+              )}
+              {perfReturns && <StockAnnualStats returns={perfReturns} />}
+              {!perfLoading && perfChartData.length === 0 && !perfReturns && (
+                <div className="text-center text-muted small py-3">אין נתונים להצגה</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

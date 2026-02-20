@@ -150,7 +150,7 @@ export interface YearGroup {
 export type TransactionType = "קניה" | "מכירה";
 export type InvestmentTerm = "קצר" | "בינוני" | "ארוך" | "לימבו";
 export type StockCurrency = "ILS" | "USD";
-export type PriceSource = "funder" | "yahoo";
+export type PriceSource = "funder" | "yahoo" | "manual";
 
 export interface StockDefinition {
   symbol: string;
@@ -230,6 +230,47 @@ export interface StockTermGroup {
   profitLossPercent: number;
   allocationPercent: number;
   goals: StockGoal[];
+}
+
+// ── NVIDIA Compensation types ──
+
+export interface RsuVest {
+  row: number;
+  grantDate: string;
+  totalSharesInGrant: number;
+  vestDate: string;
+  shares: number;
+  vestPriceUsd: number | null;
+  notes: string;
+  grantName: string;
+  sold: boolean;
+}
+
+export interface RsuGrant {
+  grantDate: string;
+  grantName: string;
+  totalShares: number;
+  vests: RsuVest[];
+  vestedShares: number;
+  unvestedShares: number;
+}
+
+export interface NvidiaCompensationData {
+  grants: RsuGrant[];
+  currentNvdaPriceUsd: number;
+  usdToIls: number;
+  summary: {
+    unvestedValueIls: number;
+    vestedValueIls: number;
+    holdableValueIls: number;
+    totalValueIls: number;
+    estimatedTaxIfSoldToday: number;
+  };
+  grossSoFar: number;
+  monthlySalary: number;
+  esppMonthlyContribution: number;
+  esppPurchasePrice: number;
+  lastUpdated: string;
 }
 
 export type ChartRange = "1M" | "6M" | "YTD" | "1Y" | "Max";

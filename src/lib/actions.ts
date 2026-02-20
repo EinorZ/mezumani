@@ -12,6 +12,7 @@ import {
   removeCategoryConfigItem,
   renameCategoryInSheets,
   renameSheet,
+  moveSheet,
   createVacationSheet,
   ensureCurrentSheets,
   listSheets,
@@ -48,6 +49,11 @@ import {
   updateStockTransaction as updateStockTx,
   deleteStockTransaction as deleteStockTx,
   saveLabelAllocations,
+  addRsuVestRows,
+  updateRsuRow,
+  deleteRsuRow,
+  toggleRsuSold,
+  setRsuGrossData,
 } from "./google-sheets";
 import { HEBREW_MONTHS } from "./constants";
 import type {
@@ -61,6 +67,7 @@ import type {
   TransactionType,
   ChartRange,
   PortfolioHistoryPoint,
+  PortfolioReturns,
 } from "./types";
 
 function buildTransactionValues(data: TransactionInput, isVacation = false) {
@@ -365,6 +372,22 @@ export async function renameSheetAction(sheetId: number, newTitle: string) {
   revalidatePath("/");
 }
 
+/** Move sheetId to be immediately after afterSheetId (or to first position if null).
+ *  afterSheetId is the sheetId of the preceding sibling in the new order. */
+export async function moveSheetAfterAction(sheetId: number, afterSheetId: number | null) {
+  const allSheetsRaw = await listSheets();
+  // listSheets returns sheets sorted by their natural order from the API
+  let targetIndex: number;
+  if (afterSheetId === null) {
+    targetIndex = 0;
+  } else {
+    const afterPos = allSheetsRaw.findIndex((s) => s.sheetId === afterSheetId);
+    targetIndex = afterPos >= 0 ? afterPos + 1 : allSheetsRaw.length;
+  }
+  await moveSheet(sheetId, targetIndex);
+  revalidatePath("/");
+}
+
 // ---- Auto-creation action ----
 
 export async function ensureCurrentSheetsAction() {
@@ -551,7 +574,95 @@ export async function deleteStockTransactionAction(row: number) {
 
 export async function getPortfolioHistoryAction(
   range: ChartRange,
+  term?: InvestmentTerm,
 ): Promise<PortfolioHistoryPoint[]> {
   const { getPortfolioHistory } = await import("./stock-dashboard");
-  return getPortfolioHistory(range);
+  return getPortfolioHistory(range, { term });
+}
+
+export async function getPortfolioReturnsAction(
+  term?: InvestmentTerm,
+): Promise<PortfolioReturns> {
+  const { getPortfolioHistory, computePortfolioReturns } = await import("./stock-dashboard");
+  const history = await getPortfolioHistory("Max", { downsample: false, term });
+  return computePortfolioReturns(history);
+}
+
+// ──────────────────────────────────────────
+// NVIDIA RSU actions
+// ──────────────────────────────────────────
+
+/**
+ * Add an RSU grant with auto-generated vest rows (7-column format).
+ */
+export async function addRsuGrantAction(
+  grantDate: string,
+  totalShares: number,
+  costPerShare: number,
+  vests: { vestDate: string; shares: number }[],
+  grantName: string = "",
+) {
+  if (vests.length === 0) return;
+
+  const rows: string[][] = vests.map((v) => [
+    grantDate,
+    String(totalShares),
+    v.vestDate,
+    String(v.shares),
+    costPerShare > 0 ? String(costPerShare) : "",
+    "", // notes
+    grantName,
+    "", // not sold
+  ]);
+
+  await addRsuVestRows(rows);
+  revalidatePath("/nvidia");
+}
+
+/**
+ * Update an RSU vest row (7-column format).
+ */
+export async function updateRsuVestAction(
+  row: number,
+  grantDate: string,
+  totalSharesInGrant: number,
+  vestDate: string,
+  shares: number,
+  vestPriceUsd: number,
+  notes: string = "",
+  grantName: string = "",
+  sold: boolean = false,
+) {
+  await updateRsuRow(row, [
+    grantDate,
+    String(totalSharesInGrant),
+    vestDate,
+    String(shares),
+    vestPriceUsd ? String(vestPriceUsd) : "",
+    notes,
+    grantName,
+    sold ? "TRUE" : "",
+  ]);
+  revalidatePath("/nvidia");
+}
+
+/**
+ * Toggle the sold flag on an RSU vest row.
+ */
+export async function toggleRsuSoldAction(row: number, sold: boolean) {
+  await toggleRsuSold(row, sold);
+  revalidatePath("/nvidia");
+}
+
+/**
+ * Delete an RSU row.
+ */
+export async function deleteRsuRowAction(row: number) {
+  await deleteRsuRow(row);
+  revalidatePath("/nvidia");
+}
+
+export async function setRsuGrossDataAction(grossSoFar: number, monthlySalary: number, esppMonthlyContribution: number, esppPurchasePrice: number) {
+  await setRsuGrossData(grossSoFar, monthlySalary, esppMonthlyContribution, esppPurchasePrice);
+  revalidatePath("/nvidia");
 }

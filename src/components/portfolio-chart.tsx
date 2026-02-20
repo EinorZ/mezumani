@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
-import type { ChartRange, PortfolioHistoryPoint } from "@/lib/types";
+import type { ChartRange, InvestmentTerm, PortfolioHistoryPoint } from "@/lib/types";
 import { getPortfolioHistoryAction } from "@/lib/actions";
 
 const RANGES: { key: ChartRange; label: string }[] = [
@@ -24,6 +24,7 @@ const RANGES: { key: ChartRange; label: string }[] = [
 interface Props {
   initialData: PortfolioHistoryPoint[];
   initialRange: ChartRange;
+  term?: InvestmentTerm;
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -68,17 +69,17 @@ function ChartTooltip({ active, payload, firstValue }: TooltipProps) {
           style={{ color: investedDiff >= 0 ? "#198754" : "#dc3545" }}
           dir="ltr"
         >
-          ({investedDiff >= 0 ? "+" : ""}{investedPct.toFixed(1)}%)
+          ({investedDiff >= 0 ? "+" : ""}{investedPct.toFixed(2)}%)
         </span>
       </div>
       <div className="text-muted" dir="ltr">
-        שינוי בתקופה: {changeFromStart >= 0 ? "+" : ""}{changeFromStart.toFixed(1)}%
+        שינוי בתקופה: {changeFromStart >= 0 ? "+" : ""}{changeFromStart.toFixed(2)}%
       </div>
     </div>
   );
 }
 
-export function PortfolioChart({ initialData, initialRange }: Props) {
+export function PortfolioChart({ initialData, initialRange, term }: Props) {
   const [data, setData] = useState(initialData);
   const [activeRange, setActiveRange] = useState<ChartRange>(initialRange);
   const [isPending, startTransition] = useTransition();
@@ -89,7 +90,7 @@ export function PortfolioChart({ initialData, initialRange }: Props) {
       setActiveRange(range);
       startTransition(async () => {
         try {
-          const result = await getPortfolioHistoryAction(range);
+          const result = await getPortfolioHistoryAction(range, term);
           setData(result);
         } catch (err) {
           console.error("[chart] fetch failed:", err);
@@ -121,7 +122,7 @@ export function PortfolioChart({ initialData, initialRange }: Props) {
             >
               {changeAmount >= 0 ? "+" : ""}
               {formatCurrency(Math.abs(changeAmount))} ({changePct >= 0 ? "+" : ""}
-              {changePct.toFixed(1)}%)
+              {changePct.toFixed(2)}%)
             </span>
           )}
         </div>

@@ -15,6 +15,7 @@ interface Props {
 }
 
 export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
+  const [open, setOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -57,18 +58,31 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
     sortKey === key ? (sortDir === "desc" ? " ▼" : " ▲") : "";
 
   return (
-    <div className="card rounded-3 border mb-4">
-      {/* Action bar */}
-      <div className="d-flex align-items-center p-3 pb-0">
-        <button
-          className="btn btn-sm btn-success rounded-pill"
-          onClick={onAddTransaction}
-        >
-          <Plus size={14} className="me-1" />
-          הוסף עסקה
-        </button>
+    <div className="card rounded-3 border mb-4 overflow-hidden">
+      {/* Collapsible header */}
+      <div
+        className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
+        style={{ cursor: "pointer" }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="d-flex align-items-center gap-2">
+          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>אחזקות</span>
+          <span className="badge rounded-pill bg-light text-secondary border" style={{ fontSize: "0.7rem" }}>{holdings.length}</span>
+        </div>
+        <div className="d-flex align-items-center gap-2">
+          <button
+            className="btn btn-sm btn-success rounded-pill"
+            style={{ fontSize: "0.75rem" }}
+            onClick={(e) => { e.stopPropagation(); onAddTransaction(); }}
+          >
+            <Plus size={12} className="me-1" />
+            הוסף עסקה
+          </button>
+          {open ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+        </div>
       </div>
 
+      {open && <>
       {/* Desktop table */}
       <div className="d-none d-lg-block p-3">
         <div className="tx-header">
@@ -138,6 +152,7 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 }
@@ -189,7 +204,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
           </span>
         </span>
         <span style={{ flex: 0.7 }} className="small">
-          {h.totalShares}
+          {h.totalShares.toFixed(2)}
         </span>
         <span style={{ flex: 1 }} className="small">
           {formatCurrency(h.avgCostPerShareILS)}
@@ -210,7 +225,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
           </bdi>
           {" "}
           <span className="small opacity-75">
-            <bdi>({isPositive ? "+" : "-"}{Math.abs(h.profitLossPercent).toFixed(1)}%)</bdi>
+            <bdi>({isPositive ? "+" : "-"}{Math.abs(h.profitLossPercent).toFixed(2)}%)</bdi>
           </span>
         </span>
         <span
@@ -228,7 +243,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
         >
           {h.ytdChangePercent === null
             ? "—"
-            : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(1)}%`}
+            : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(2)}%`}
         </span>
       </div>
       {expanded && (
@@ -265,7 +280,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
                       {txPositive ? "+" : ""}
                       {formatCurrency(txPnl)}
                       <span className="opacity-75 ms-1">
-                        ({txPositive ? "+" : ""}{txPnlPercent.toFixed(1)}%)
+                        ({txPositive ? "+" : ""}{txPnlPercent.toFixed(2)}%)
                       </span>
                     </td>
                   </tr>
@@ -328,7 +343,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
                 {h.symbol} ({h.displayName})
               </span>
               <span className="text-muted" style={{ fontSize: "0.7rem" }}>
-                {h.totalShares} x {formatCurrency(h.avgCostPerShareILS)}
+                {h.totalShares.toFixed(2)} x {formatCurrency(h.avgCostPerShareILS)}
               </span>
             </div>
             <span className="text-muted" style={{ fontSize: "0.7rem" }}>
@@ -344,7 +359,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
             <div className="fw-bold">{formatCurrency(h.currentValueILS)}</div>
             <div style={{ color: pnlColor, fontSize: "0.75rem" }} dir="ltr">
               {isPositive ? "+" : ""}
-              {h.profitLossPercent.toFixed(1)}% ({isPositive ? "+" : ""}
+              {h.profitLossPercent.toFixed(2)}% ({isPositive ? "+" : ""}
               {formatCurrency(h.profitLoss)})
             </div>
             {h.ytdChangePercent !== null && (
@@ -356,7 +371,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
                 dir="ltr"
               >
                 YTD: {h.ytdChangePercent >= 0 ? "+" : ""}
-                {h.ytdChangePercent.toFixed(1)}%
+                {h.ytdChangePercent.toFixed(2)}%
               </div>
             )}
           </div>
@@ -372,7 +387,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
               >
                 <span className="text-muted">{tx.date}</span>
                 <span>
-                  {tx.quantity} x {formatCurrency(tx.pricePerUnitILS)}
+                  {tx.quantity.toFixed(2)} x {formatCurrency(tx.pricePerUnitILS)}
                 </span>
                 <span className="fw-medium">
                   {formatCurrency(tx.pricePerUnitILS * tx.quantity)}

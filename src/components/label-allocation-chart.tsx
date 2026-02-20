@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
-import { CHART_COLORS } from "@/lib/constants";
+import { getLabelColor } from "@/lib/constants";
 import type { ChartMode } from "@/components/stock-pie-chart";
 
 interface LabelDataItem {
@@ -46,17 +46,13 @@ function useLabelData(
     }
     const total = Array.from(groups.values()).reduce((s, v) => s + v, 0);
     const items: LabelDataItem[] = Array.from(groups.entries())
-      .map(([label, value], i) => ({
+      .map(([label, value]) => ({
         label,
         value,
         percent: total > 0 ? (value / total) * 100 : 0,
-        color: CHART_COLORS[i % CHART_COLORS.length],
+        color: getLabelColor(label),
       }))
       .sort((a, b) => b.value - a.value);
-    // Re-assign colors after sort
-    items.forEach((item, i) => {
-      item.color = CHART_COLORS[i % CHART_COLORS.length];
-    });
     return { data: items, totalValue: total };
   }, [holdings, labelMap, otherLabel]);
 }

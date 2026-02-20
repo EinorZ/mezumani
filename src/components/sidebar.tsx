@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { SheetInfo, YearGroup } from "@/lib/types";
 import { stripYearSuffix } from "@/lib/utils";
-import { renameSheetAction, createVacation } from "@/lib/actions";
+import { renameSheetAction, createVacation, moveSheetAfterAction } from "@/lib/actions";
 
 interface Props {
   yearGroups: YearGroup[];
@@ -89,6 +89,16 @@ export function Sidebar({ yearGroups }: Props) {
 
   const [pinned, setPinned] = useState(false);
   const [showVacationForm, setShowVacationForm] = useState<number | null>(null);
+
+  // Drag-to-reorder for vacation lists (keyed by year)
+  const [vacationOrders, setVacationOrders] = useState<Record<number, SheetInfo[]>>(() =>
+    Object.fromEntries(yearGroups.map((g) => [g.year, g.vacations]))
+  );
+  useEffect(() => {
+    setVacationOrders(Object.fromEntries(yearGroups.map((g) => [g.year, g.vacations])));
+  }, [yearGroups]);
+  const dragItem = useRef<{ year: number; index: number } | null>(null);
+  const dragOver = useRef<number | null>(null);
   const [vacationName, setVacationName] = useState("");
   const [vacationSubmitting, setVacationSubmitting] = useState(false);
 
@@ -216,6 +226,12 @@ export function Sidebar({ yearGroups }: Props) {
           className={`sidebar-link ${isActive("/stocks") ? "active" : ""}`}
         >
           תיק מניות
+        </Link>
+        <Link
+          href="/nvidia"
+          className={`sidebar-link ${isActive("/nvidia") ? "active" : ""}`}
+        >
+          NVIDIA
         </Link>
 
         {yearGroups.map((group) => {
@@ -349,16 +365,39 @@ export function Sidebar({ yearGroups }: Props) {
                     transition: "max-height 200ms ease",
                   }}
                 >
-                  {group.vacations.map((v) => {
+                  {(vacationOrders[group.year] ?? group.vacations).map((v, idx) => {
                     const href = `/vacation/${v.sheetId}`;
                     return (
-                      <EditableSheetLink
+                      <div
                         key={v.sheetId}
-                        sheet={v}
-                        href={href}
-                        isActive={isActive(href)}
-                        yearSuffix={group.year}
-                      />
+                        draggable
+                        onDragStart={() => { dragItem.current = { year: group.year, index: idx }; }}
+                        onDragEnter={() => { dragOver.current = idx; }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDragEnd={async () => {
+                          const from = dragItem.current;
+                          const toIdx = dragOver.current;
+                          dragItem.current = null;
+                          dragOver.current = null;
+                          if (!from || toIdx === null || from.index === toIdx) return;
+                          const items = [...(vacationOrders[from.year] ?? group.vacations)];
+                          const [moved] = items.splice(from.index, 1);
+                          items.splice(toIdx, 0, moved);
+                          setVacationOrders((prev) => ({ ...prev, [from.year]: items }));
+                          // Move after the preceding sibling in the new order
+                          const prevSibling = items[toIdx - 1] ?? null;
+                          await moveSheetAfterAction(moved.sheetId, prevSibling?.sheetId ?? null);
+                          router.refresh();
+                        }}
+                        style={{ cursor: "grab" }}
+                      >
+                        <EditableSheetLink
+                          sheet={v}
+                          href={href}
+                          isActive={isActive(href)}
+                          yearSuffix={group.year}
+                        />
+                      </div>
                     );
                   })}
                   {showVacationForm === group.year && (

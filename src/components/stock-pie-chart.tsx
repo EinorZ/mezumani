@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
-import { CHART_COLORS } from "@/lib/constants";
+import { getLabelColor } from "@/lib/constants";
 
 export type ChartMode = "donut" | "treemap";
 
@@ -37,12 +37,12 @@ function useChartData(holdings: StockHolding[]) {
     const items: PieDataItem[] = holdings
       .filter((h) => h.currentValueILS > 0)
       .sort((a, b) => b.currentValueILS - a.currentValueILS)
-      .map((h, i) => ({
+      .map((h) => ({
         name: h.displayName,
         symbol: h.symbol,
         value: h.currentValueILS,
         percent: total > 0 ? (h.currentValueILS / total) * 100 : 0,
-        color: CHART_COLORS[i % CHART_COLORS.length],
+        color: getLabelColor(h.label || h.symbol),
       }));
     return { data: items, totalValue: total };
   }, [holdings]);

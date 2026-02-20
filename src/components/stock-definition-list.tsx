@@ -80,7 +80,7 @@ function StockRow({
             className="badge rounded-pill bg-secondary"
             style={{ fontSize: "0.65rem" }}
           >
-            {it.source === "yahoo" ? "Yahoo" : "TheMarker"}
+            {it.source === "yahoo" ? "Yahoo" : it.source === "funder" ? "Funder" : "ידני"}
           </span>
           <span
             className="badge rounded-pill bg-info text-dark"
@@ -127,6 +127,7 @@ function StockRow({
           >
             <option value="yahoo">Yahoo</option>
             <option value="funder">Funder</option>
+            <option value="manual">ידני</option>
           </select>
           <select
             className="form-select form-select-sm"

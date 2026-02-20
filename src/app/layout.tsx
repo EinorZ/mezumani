@@ -7,6 +7,7 @@ import {
 } from "@/lib/google-sheets";
 import { buildYearGroups } from "@/lib/utils";
 import { Sidebar } from "@/components/sidebar";
+import { NoNumberScroll } from "@/components/no-number-scroll";
 import "./globals.css";
 
 const rubik = Rubik({
@@ -40,6 +41,7 @@ export default async function RootLayout({
   return (
     <html lang="he" dir="rtl">
       <body className={rubik.variable}>
+        <NoNumberScroll />
         <div className="app-layout">
           <Sidebar yearGroups={yearGroups} />
           <main className="main-content">{children}</main>

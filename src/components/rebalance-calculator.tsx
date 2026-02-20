@@ -32,7 +32,7 @@ function formatNum(n: number): string {
 }
 
 function stockLabel(s: StockDefinition): string {
-  return /^\d+$/.test(s.symbol) ? s.displayName : s.symbol;
+  return s.displayName || s.symbol;
 }
 
 export function RebalanceCalculator({ holdings, config }: Props) {
@@ -292,7 +292,7 @@ export function RebalanceCalculator({ holdings, config }: Props) {
     <div className="card rounded-3 border mb-4 overflow-hidden">
       {/* Header */}
       <div
-        className="d-flex align-items-center justify-content-between px-3 py-2 border-bottom"
+        className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
         style={{ cursor: "pointer" }}
         onClick={() => setOpen(!open)}
       >

@@ -203,9 +203,18 @@ function computeHolding(
     : 0;
 
   // Current price from source, convert to ILS if USD
-  const currentPriceRaw = prices.get(stockDef.symbol) ?? 0;
-  const currentPriceILS =
-    stockDef.currency === "USD" ? currentPriceRaw * usdToIls : currentPriceRaw;
+  // For "manual" source, use the most recent purchase transaction's price (already in ILS)
+  let currentPriceILS: number;
+  let currentPriceRaw: number;
+  if (stockDef.source === "manual") {
+    const lastBuy = [...txs].reverse().find((t) => t.type === "קניה");
+    currentPriceILS = lastBuy?.pricePerUnitILS ?? 0;
+    currentPriceRaw = currentPriceILS; // already ILS, no conversion needed
+  } else {
+    currentPriceRaw = prices.get(stockDef.symbol) ?? 0;
+    currentPriceILS =
+      stockDef.currency === "USD" ? currentPriceRaw * usdToIls : currentPriceRaw;
+  }
   const currentValueILS = totalShares * currentPriceILS;
 
   const profitLoss = currentValueILS - totalInvestedILS - totalMgmtFees;
@@ -213,8 +222,9 @@ function computeHolding(
     totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
 
   // YTD: compare current price vs start-of-year price (in original currency)
-  const ytdStartPrice = ytdStartPrices.get(stockDef.symbol);
-  const currentPriceRawForYtd = prices.get(stockDef.symbol) ?? 0;
+  // Manual source has no YTD data
+  const ytdStartPrice = stockDef.source === "manual" ? undefined : ytdStartPrices.get(stockDef.symbol);
+  const currentPriceRawForYtd = stockDef.source === "manual" ? 0 : (prices.get(stockDef.symbol) ?? 0);
   const ytdChangePercent =
     ytdStartPrice && ytdStartPrice > 0 && currentPriceRawForYtd > 0
       ? ((currentPriceRawForYtd - ytdStartPrice) / ytdStartPrice) * 100
@@ -311,20 +321,25 @@ function computePeriod1(range: ChartRange, transactions: StockTransaction[]): st
 
 export async function getPortfolioHistory(
   range: ChartRange,
-  { downsample = true }: { downsample?: boolean } = {},
+  { downsample = true, term }: { downsample?: boolean; term?: InvestmentTerm } = {},
 ): Promise<PortfolioHistoryPoint[]> {
   const [config, transactions] = await Promise.all([
     getStockConfig(),
     getStockTransactions(),
   ]);
 
-  if (transactions.length === 0) return [];
+  const filteredTransactions = term ? transactions.filter((t) => t.term === term) : transactions;
+  if (filteredTransactions.length === 0) return [];
 
-  const period1 = computePeriod1(range, transactions);
+  const period1 = computePeriod1(range, filteredTransactions);
   const period2 = new Date().toISOString().split("T")[0];
 
+  // Only fetch prices for stocks present in the filtered transactions
+  const filteredSymbols = new Set(filteredTransactions.map((t) => t.symbol));
+  const filteredStocks = config.stocks.filter((s) => filteredSymbols.has(s.symbol));
+
   const { prices, usdIls } = await fetchHistoricalPrices(
-    config.stocks,
+    filteredStocks,
     period1,
     period2,
   );
@@ -355,8 +370,8 @@ export async function getPortfolioHistory(
     stockPriceByDate.set(symbol, dateMap);
   }
 
-  // Sort transactions by date for replay
-  const sortedTxs = [...transactions].sort((a, b) => {
+  // Sort filtered transactions by date for replay
+  const sortedTxs = [...filteredTransactions].sort((a, b) => {
     const aIso = txDateToISO(a.date);
     const bIso = txDateToISO(b.date);
     return aIso.localeCompare(bIso);
