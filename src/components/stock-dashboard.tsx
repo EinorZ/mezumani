@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -30,8 +30,10 @@ import { StockAddPanel } from "@/components/stock-add-panel";
 import { RebalanceCalculator } from "@/components/rebalance-calculator";
 import { PortfolioChart } from "@/components/portfolio-chart";
 import { StockAnnualStats } from "@/components/stock-annual-stats";
-import { revalidatePageAction, getPortfolioHistoryAction, getPortfolioReturnsAction } from "@/lib/actions";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { usePageRefresh } from "@/hooks/use-page-refresh";
+import { usePortfolioPerformance } from "@/hooks/use-portfolio-performance";
+import { computeViewYtd } from "@/lib/stock-utils";
 
 interface Props {
   data: StockDashboardData;
@@ -45,38 +47,34 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
   const labelMap = Object.fromEntries(
     config.stocks.filter((s) => s.label).map((s) => [s.symbol, s.label]),
   );
+  const labelColorMap = Object.fromEntries(
+    config.labelAllocations.filter((a) => a.color).map((a) => [a.label, a.color!]),
+  );
   // Only show tabs for terms that have goals defined in settings
   const goalTerms = [...new Set(config.goals.map((g) => g.term))];
   const [panelOpen, setPanelOpen] = useState(false);
-
   const [panelDefaults, setPanelDefaults] = useState<{
     symbol?: string;
     type?: "קניה" | "מכירה";
   }>({});
-  const [refreshing, setRefreshing] = useState(false);
   const [viewTerm, setViewTerm] = useState<InvestmentTerm | "all">("all");
   const [chartMode, setChartMode] = useState<ChartMode>("donut");
 
   // Collapsible performance section
   const [perfOpen, setPerfOpen] = useState(false);
-  const [perfChartData, setPerfChartData] = useState<PortfolioHistoryPoint[]>(initialChartData ?? []);
-  const [perfReturns, setPerfReturns] = useState<PortfolioReturns | null>(portfolioReturns ?? null);
-  const [perfLoading, setPerfLoading] = useState(false);
-  const perfChartRange = useRef<ChartRange>(initialChartRange);
-
-  // Re-fetch performance data when the section is open and term changes
-  useEffect(() => {
-    if (!perfOpen) return;
-    const term = viewTerm === "all" ? undefined : viewTerm;
-    setPerfLoading(true);
-    Promise.all([
-      getPortfolioHistoryAction(perfChartRange.current, term),
-      getPortfolioReturnsAction(term),
-    ]).then(([history, returns]) => {
-      setPerfChartData(history);
-      setPerfReturns(returns);
-    }).finally(() => setPerfLoading(false));
-  }, [viewTerm, perfOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, handleRefresh } = usePageRefresh("/stocks");
+  const {
+    chartData: perfChartData,
+    returns: perfReturns,
+    loading: perfLoading,
+    rangeRef: perfChartRange,
+  } = usePortfolioPerformance({
+    initialChartData: initialChartData ?? null,
+    initialRange: initialChartRange,
+    initialReturns: portfolioReturns ?? null,
+    term: viewTerm,
+    enabled: perfOpen,
+  });
 
   const { totals, usdToIls, lastUpdated } = data;
   const isPositive = totals.totalProfitLoss >= 0;
@@ -84,16 +82,6 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
   function openPanel(defaults?: { symbol?: string; type?: "קניה" | "מכירה" }) {
     setPanelDefaults(defaults ?? {});
     setPanelOpen(true);
-  }
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      await revalidatePageAction("/stocks");
-      window.location.reload();
-    } finally {
-      setRefreshing(false);
-    }
   }
 
   const lastUpdatedDate = new Date(lastUpdated);
@@ -151,33 +139,9 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       : data.holdings.filter((h) => h.term === viewTerm);
   const viewIsPositive = viewTotals.totalProfitLoss >= 0;
 
-  // Compute YTD for the active view (weighted average by value)
-  const viewYtdHoldings = viewHoldings.filter((h) => h.ytdChangePercent !== null);
-  const viewYtdWeightedSum = viewYtdHoldings.reduce(
-    (s, h) => s + h.ytdChangePercent! * h.currentValueILS,
-    0,
-  );
-  const viewYtdTotalWeight = viewYtdHoldings.reduce(
-    (s, h) => s + h.currentValueILS,
-    0,
-  );
-  const viewYtd =
-    viewTerm === "all"
-      ? totals.ytdChangePercent
-      : viewYtdTotalWeight > 0
-        ? viewYtdWeightedSum / viewYtdTotalWeight
-        : null;
-  // YTD P&L in ILS: pure price gain per holding = currentValue * ytd% / (100 + ytd%)
-  const viewYtdProfitLossILS = viewYtdHoldings.reduce((s, h) => {
-    const ytd = h.ytdChangePercent!;
-    return s + h.currentValueILS * (ytd / (100 + ytd));
-  }, 0);
-
-  // Derive display % from actual ILS P&L so sign is always consistent with the amount
-  const viewYtdDisplay =
-    viewYtdTotalWeight > 0 && viewYtdProfitLossILS !== 0
-      ? (viewYtdProfitLossILS / (viewYtdTotalWeight - viewYtdProfitLossILS)) * 100
-      : viewYtd;
+  // Compute YTD for the active view using shared utility
+  const { ytdProfitLossILS: viewYtdProfitLossILS, ytdDisplay: viewYtdDisplay } =
+    computeViewYtd(viewHoldings, viewTerm, viewTotals);
   const viewYtdPositive = viewYtdProfitLossILS >= 0;
 
   return (
@@ -295,7 +259,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
             )}
           </div>
         </div>
-        {viewYtd !== null && (
+        {viewYtdDisplay !== null && (
           <div className="col">
             <div
               className={`card ${viewYtdPositive ? "card-teal-gradient" : "card-red-gradient"} rounded-3 p-3 h-100`}
@@ -388,10 +352,10 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       </div>
       <div className="row g-3 mb-4">
         <div className="col-12 col-lg-6">
-          <StockPieChart holdings={viewHoldings} chartMode={chartMode} />
+          <StockPieChart holdings={viewHoldings} labelColorMap={labelColorMap} chartMode={chartMode} />
         </div>
         <div className="col-12 col-lg-6">
-          <LabelAllocationChart holdings={viewHoldings} labelMap={labelMap} chartMode={chartMode} />
+          <LabelAllocationChart holdings={viewHoldings} labelMap={labelMap} labelColorMap={labelColorMap} chartMode={chartMode} />
         </div>
       </div>
 

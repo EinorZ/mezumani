@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  startTransition,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -20,7 +18,6 @@ import {
   addVacationTransaction,
   editVacationTransaction,
   deleteVacationTransaction,
-  revalidatePageAction,
   bulkEditTransactions,
   bulkEditVacationTransactions,
   bulkDeleteTransactions,
@@ -31,20 +28,19 @@ import {
 import type {
   Transaction,
   VacationMonthRow,
-  CategoryMapping,
 } from "@/lib/types";
+import { usePageConfig } from "@/contexts/page-config-context";
+import { useOptimisticTransactions } from "@/hooks/use-optimistic-transactions";
+import { useSort } from "@/hooks/use-sort";
+import { useTransactionFilters } from "@/hooks/use-transaction-filters";
+import { useBulkSelection } from "@/hooks/use-bulk-selection";
 
 interface Props {
   transactions: Transaction[];
   sheetTitle: string;
   pagePath: string;
-  categories: string[];
-  cards: string[];
-  colorMap: Record<string, string>;
-  cardColorMap?: Record<string, string>;
   isVacation?: boolean;
   vacationRows?: VacationMonthRow[];
-  categoryMappings?: CategoryMapping[];
 }
 
 const emptyForm = {
@@ -58,19 +54,7 @@ const emptyForm = {
   tentative: false,
 };
 
-type TransactionData = {
-  date: string;
-  expense: string;
-  amount: number;
-  category: string;
-  card: string;
-  notes: string;
-};
-
-type UndoEntry =
-  | { type: "add"; tempRow: number }
-  | { type: "edit"; row: number; original: TransactionData }
-  | { type: "delete"; row: number; data: TransactionData };
+type SortKey = "expense" | "date" | "amount" | "category" | "card";
 
 function parseMonthFromTitle(title: string): number {
   const idx = HEBREW_MONTHS.findIndex((m) => title.startsWith(m));
@@ -79,9 +63,6 @@ function parseMonthFromTitle(title: string): number {
   const prevMonth = new Date().getMonth(); // 0-indexed, so this is already "previous" (current - 1 + 1)
   return prevMonth || 12;
 }
-
-type SortKey = "expense" | "date" | "amount" | "category" | "card";
-type SortDir = "asc" | "desc";
 
 function parseDate(d: string): number {
   const parts = d.split(/[/.]/);
@@ -94,32 +75,25 @@ function parseDate(d: string): number {
   return year * 10000 + month * 100 + day;
 }
 
-function sortTransactions(
-  txs: Transaction[],
+function compareTransactions(
+  a: Transaction,
+  b: Transaction,
   key: SortKey,
-  dir: SortDir,
-): Transaction[] {
-  return [...txs].sort((a, b) => {
-    let cmp = 0;
-    switch (key) {
-      case "amount":
-        cmp = a.amount - b.amount;
-        break;
-      case "date":
-        cmp = parseDate(a.date) - parseDate(b.date);
-        break;
-      case "expense":
-        cmp = a.expense.localeCompare(b.expense, "he");
-        break;
-      case "category":
-        cmp = a.category.localeCompare(b.category, "he");
-        break;
-      case "card":
-        cmp = a.card.localeCompare(b.card, "he");
-        break;
-    }
-    return dir === "asc" ? cmp : -cmp;
-  });
+): number {
+  switch (key) {
+    case "amount":
+      return a.amount - b.amount;
+    case "date":
+      return parseDate(a.date) - parseDate(b.date);
+    case "expense":
+      return a.expense.localeCompare(b.expense, "he");
+    case "category":
+      return a.category.localeCompare(b.category, "he");
+    case "card":
+      return a.card.localeCompare(b.card, "he");
+    default:
+      return 0;
+  }
 }
 
 /** Column flex shorthand (grow shrink basis) */
@@ -149,167 +123,30 @@ function buildDate(dayInput: string, sheetMonth: string): string {
   return `${trimmed}/${sheetMonth}`;
 }
 
-let optimisticId = -1;
-
-const REVALIDATE_DELAY = 3000; // 3 seconds after last change
-
 export function TransactionTable({
   transactions,
   sheetTitle,
   pagePath,
-  categories,
-  cards,
-  colorMap,
-  cardColorMap,
   isVacation,
   vacationRows,
-  categoryMappings,
 }: Props) {
+  const {
+    allCards: cards,
+    colorMap,
+    cardColorMap,
+    categoryNames: categories,
+    config: { categoryMappings },
+  } = usePageConfig();
   const sheetMonth = String(parseMonthFromTitle(sheetTitle));
   const defaultAddForm = { ...emptyForm, month: sheetMonth };
 
-  // Debounced revalidation
-  const revalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function scheduleRevalidate() {
-    if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
-    revalidateTimer.current = setTimeout(() => {
-      startTransition(() => {
-        revalidatePageAction(pagePath);
-      });
-      revalidateTimer.current = null;
-    }, REVALIDATE_DELAY);
-  }
-  function flushRevalidate() {
-    if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
-    revalidateTimer.current = null;
-    startTransition(() => {
-      revalidatePageAction(pagePath);
-    });
-  }
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [addForm, setAddForm] = useState(defaultAddForm);
   const [editForm, setEditForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterCategories, setFilterCategories] = useState<Set<string>>(
-    new Set(),
-  );
-  const [excludeCategories, setExcludeCategories] = useState<Set<string>>(
-    new Set(),
-  );
-  const [filterCards, setFilterCards] = useState<Set<string>>(new Set());
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
-  const [bulkCategory, setBulkCategory] = useState("");
-  const [bulkCard, setBulkCard] = useState("");
-
-  // Optimistic local state
-  const [pendingAdds, setPendingAdds] = useState<Transaction[]>([]);
-  const [pendingEdits, setPendingEdits] = useState<Map<number, Transaction>>(
-    new Map(),
-  );
-  const [pendingDeletes, setPendingDeletes] = useState<Set<number>>(new Set());
-  const inflightRef = useRef(0);
 
   // Ref for the edit row element to detect outside clicks
   const editRowRef = useRef<HTMLDivElement>(null);
-
-  // Undo stack
-  const [_undoStack, setUndoStack] = useState<UndoEntry[]>([]);
-  // Track tempRow → real row mapping for undoing adds after they've been saved
-  const addedRowMapRef = useRef<Map<number, number>>(new Map());
-  // Track cancelled adds so we auto-delete them when the server responds
-  const cancelledAddsRef = useRef<Set<number>>(new Set());
-
-  // Clear optimistic state when server data updates AND no ops are in flight
-  const prevTxRef = useRef(transactions);
-  useEffect(() => {
-    if (prevTxRef.current !== transactions) {
-      prevTxRef.current = transactions;
-      if (inflightRef.current === 0) {
-        setPendingAdds([]);
-        setPendingEdits(new Map());
-        setPendingDeletes(new Set());
-      }
-    }
-  }, [transactions]);
-
-  // Merge optimistic state with server data — pending adds always at the end
-  const serverTransactions = useMemo(() => {
-    return transactions
-      .filter((t) => !pendingDeletes.has(t.row))
-      .map((t) => pendingEdits.get(t.row) ?? t);
-  }, [transactions, pendingEdits, pendingDeletes]);
-
-  const sortedTransactions = useMemo(() => {
-    const sorted = sortKey
-      ? sortTransactions(serverTransactions, sortKey, sortDir)
-      : serverTransactions;
-    return [...sorted, ...pendingAdds];
-  }, [serverTransactions, pendingAdds, sortKey, sortDir]);
-
-  const filteredTransactions = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return sortedTransactions.filter((t) => {
-      if (
-        q &&
-        !t.expense.toLowerCase().includes(q) &&
-        !t.notes.toLowerCase().includes(q)
-      )
-        return false;
-      if (filterCategories.size > 0 && !filterCategories.has(t.category))
-        return false;
-      if (excludeCategories.size > 0 && excludeCategories.has(t.category))
-        return false;
-      if (filterCards.size > 0 && !filterCards.has(t.card)) return false;
-      return true;
-    });
-  }, [
-    sortedTransactions,
-    searchQuery,
-    filterCategories,
-    excludeCategories,
-    filterCards,
-  ]);
-
-  // Derive unique categories and cards from current transactions for filter options
-  const activeCategories = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of sortedTransactions) if (t.category) set.add(t.category);
-    return [...set].sort((a, b) => a.localeCompare(b, "he"));
-  }, [sortedTransactions]);
-
-  const activeCards = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of sortedTransactions) if (t.card) set.add(t.card);
-    return [...set].sort((a, b) => a.localeCompare(b, "he"));
-  }, [sortedTransactions]);
-
-  const hasActiveFilters =
-    searchQuery ||
-    filterCategories.size > 0 ||
-    excludeCategories.size > 0 ||
-    filterCards.size > 0;
-
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      if (sortDir === "asc") {
-        setSortDir("desc");
-      } else {
-        setSortKey(null);
-        setSortDir("asc");
-      }
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  }
-
-  function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return " ⇅";
-    return sortDir === "asc" ? " ▲" : " ▼";
-  }
 
   const addAction = isVacation ? addVacationTransaction : addTransaction;
   const editAction = isVacation ? editVacationTransaction : editTransaction;
@@ -322,52 +159,105 @@ export function TransactionTable({
   const bulkDeleteAction = isVacation
     ? bulkDeleteVacationTransactions
     : bulkDeleteTransactions;
+  const bulkTentativeAction = isVacation
+    ? bulkToggleVacationTentative
+    : bulkToggleTentative;
 
-  const lastCheckedRef = useRef<number | null>(null);
+  const optimistic = useOptimisticTransactions({
+    transactions,
+    sheetTitle,
+    pagePath,
+    addAction,
+    editAction,
+    deleteAction,
+    onError: (msg) => setError(msg),
+  });
 
-  function handleCheckboxChange(row: number, e: React.MouseEvent) {
-    if (row < 0) return;
+  // Server rows (positive row numbers) — sorted; pendingAdds always appended last
+  const serverRows = useMemo(
+    () => optimistic.displayRows.filter((t) => t.row >= 0),
+    [optimistic.displayRows],
+  );
+  const { sortedRows: sortedServerRows, toggleSort, sortIndicator } = useSort(
+    serverRows,
+    compareTransactions,
+  );
+  const sortedRows = useMemo(
+    () => [...sortedServerRows, ...optimistic.pendingAdds],
+    [sortedServerRows, optimistic.pendingAdds],
+  );
 
-    if (e.shiftKey && lastCheckedRef.current !== null) {
-      // Shift+click: select range between lastChecked and current
-      const rows = filteredTransactions.map((t) => t.row).filter((r) => r >= 0);
-      const from = rows.indexOf(lastCheckedRef.current);
-      const to = rows.indexOf(row);
-      if (from !== -1 && to !== -1) {
-        const [start, end] = from < to ? [from, to] : [to, from];
-        setSelectedRows((prev) => {
-          const next = new Set(prev);
-          for (let i = start; i <= end; i++) next.add(rows[i]);
-          return next;
-        });
-        lastCheckedRef.current = row;
-        return;
-      }
-    }
+  const {
+    searchQuery,
+    setSearchQuery,
+    filterCategories,
+    setFilterCategories,
+    excludeCategories,
+    setExcludeCategories,
+    filterCards,
+    setFilterCards,
+    filteredRows,
+    hasActiveFilters,
+    clearFilters,
+  } = useTransactionFilters(sortedRows);
 
-    lastCheckedRef.current = row;
-    setSelectedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(row)) next.delete(row);
-      else next.add(row);
-      return next;
+  const {
+    selectedRows,
+    bulkCategory,
+    setBulkCategory,
+    bulkCard,
+    setBulkCard,
+    toggleRow,
+    selectAll,
+    clearSelection,
+  } = useBulkSelection(filteredRows);
+
+  // Derive unique categories and cards from current transactions for filter options
+  const activeCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of sortedRows) if (t.category) set.add(t.category);
+    return [...set].sort((a, b) => a.localeCompare(b, "he"));
+  }, [sortedRows]);
+
+  const activeCards = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of sortedRows) if (t.card) set.add(t.card);
+    return [...set].sort((a, b) => a.localeCompare(b, "he"));
+  }, [sortedRows]);
+
+  function handleAdd() {
+    if (!addForm.expense.trim() && !addForm.amount.trim()) return;
+    const date = buildDate(addForm.day, sheetMonth);
+    const amount = parseFloat(addForm.amount) || 0;
+    setAddForm(defaultAddForm);
+    optimistic.handleAdd({
+      date,
+      expense: addForm.expense,
+      amount,
+      category: addForm.category,
+      card: addForm.card,
+      notes: addForm.notes,
+      tentative: addForm.tentative,
     });
   }
 
-  function handleSelectAll() {
-    const selectableRows = filteredTransactions.filter((t) => t.row >= 0);
-    const allSelected = selectableRows.every((t) => selectedRows.has(t.row));
-    if (allSelected) {
-      setSelectedRows(new Set());
-    } else {
-      setSelectedRows(new Set(selectableRows.map((t) => t.row)));
-    }
+  function handleEdit(row: number) {
+    const date = buildDate(editForm.day, sheetMonth);
+    const amount = parseFloat(editForm.amount) || 0;
+    setEditingRow(null);
+    optimistic.handleEdit(row, {
+      date,
+      expense: editForm.expense,
+      amount,
+      category: editForm.category,
+      card: editForm.card,
+      notes: editForm.notes,
+      tentative: editForm.tentative,
+    });
   }
 
-  function clearSelection() {
-    setSelectedRows(new Set());
-    setBulkCategory("");
-    setBulkCard("");
+  function handleDelete(row: number) {
+    optimistic.handleDelete(row);
   }
 
   function handleBulkEdit() {
@@ -382,34 +272,15 @@ export function TransactionTable({
       updates.push(update);
     }
 
-    // Optimistic: update selected rows immediately
-    setPendingEdits((prev) => {
-      const next = new Map(prev);
-      for (const row of selectedRows) {
-        const existing = filteredTransactions.find((t) => t.row === row);
-        if (!existing) continue;
-        const edited = { ...existing };
-        if (bulkCategory) edited.category = bulkCategory;
-        if (bulkCard) edited.card = bulkCard;
-        next.set(row, edited);
-      }
-      return next;
-    });
-
+    optimistic.applyBulkEdits(updates, filteredRows);
     clearSelection();
 
-    // Save in background
-    inflightRef.current++;
+    optimistic.inflightRef.current++;
     bulkEditAction(sheetTitle, updates)
-      .then(onInflightDone)
+      .then(optimistic.onInflightDone)
       .catch((e) => {
-        onInflightDone();
-        // Revert optimistic edits on error
-        setPendingEdits((prev) => {
-          const next = new Map(prev);
-          for (const u of updates) next.delete(u.row);
-          return next;
-        });
+        optimistic.onInflightDone();
+        optimistic.revertBulkEdits(updates.map((u) => u.row));
         setError(e instanceof Error ? e.message : "שגיאה בעריכה מרובה");
       });
   }
@@ -419,281 +290,36 @@ export function TransactionTable({
 
     const rows = [...selectedRows];
 
-    // Optimistic: hide all selected rows immediately
-    setPendingDeletes((prev) => {
-      const next = new Set(prev);
-      for (const row of rows) next.add(row);
-      return next;
-    });
-
+    optimistic.applyBulkDeletes(rows);
     clearSelection();
 
-    // Delete in background
-    inflightRef.current++;
+    optimistic.inflightRef.current++;
     bulkDeleteAction(sheetTitle, rows)
-      .then(onInflightDone)
+      .then(optimistic.onInflightDone)
       .catch((e) => {
-        onInflightDone();
-        // Revert optimistic deletes on error
-        setPendingDeletes((prev) => {
-          const next = new Set(prev);
-          for (const row of rows) next.delete(row);
-          return next;
-        });
+        optimistic.onInflightDone();
+        optimistic.revertBulkDeletes(rows);
         setError(e instanceof Error ? e.message : "שגיאה במחיקה מרובה");
       });
   }
-
-  const bulkTentativeAction = isVacation
-    ? bulkToggleVacationTentative
-    : bulkToggleTentative;
 
   function handleBulkTentative(tentative: boolean) {
     if (selectedRows.size === 0) return;
 
     const rows = [...selectedRows];
 
-    // Optimistic: update tentative flag on selected rows
-    setPendingEdits((prev) => {
-      const next = new Map(prev);
-      for (const row of rows) {
-        const existing = filteredTransactions.find((t) => t.row === row);
-        if (!existing) continue;
-        next.set(row, { ...existing, tentative: tentative || undefined });
-      }
-      return next;
-    });
-
+    optimistic.applyBulkTentative(rows, tentative, filteredRows);
     clearSelection();
 
-    // Save in background
-    inflightRef.current++;
+    optimistic.inflightRef.current++;
     bulkTentativeAction(sheetTitle, rows, tentative)
-      .then(onInflightDone)
+      .then(optimistic.onInflightDone)
       .catch((e) => {
-        onInflightDone();
-        // Revert optimistic edits on error
-        setPendingEdits((prev) => {
-          const next = new Map(prev);
-          for (const row of rows) next.delete(row);
-          return next;
-        });
+        optimistic.onInflightDone();
+        optimistic.revertBulkEdits(rows);
         setError(e instanceof Error ? e.message : "שגיאה בעדכון משוער");
       });
   }
-
-  function onInflightDone() {
-    inflightRef.current--;
-    scheduleRevalidate();
-    // Optimistic state is cleared by the prevTxRef effect when fresh server data arrives
-  }
-
-  function handleAdd() {
-    if (!addForm.expense.trim() && !addForm.amount.trim()) return;
-    const date = buildDate(addForm.day, sheetMonth);
-    const amount = parseFloat(addForm.amount) || 0;
-
-    // Optimistic: show immediately
-    const tempRow = optimisticId--;
-    const optimisticTx: Transaction = {
-      row: tempRow,
-      date,
-      expense: addForm.expense,
-      amount,
-      category: addForm.category,
-      card: addForm.card,
-      notes: addForm.notes,
-      tentative: addForm.tentative || undefined,
-    };
-    setPendingAdds((prev) => [...prev, optimisticTx]);
-    setAddForm(defaultAddForm);
-    setUndoStack((prev) => [...prev, { type: "add", tempRow }]);
-
-    // Save in background
-    inflightRef.current++;
-    addAction(sheetTitle, {
-      date,
-      expense: addForm.expense,
-      amount,
-      category: addForm.category,
-      card: addForm.card,
-      notes: addForm.notes,
-      tentative: addForm.tentative,
-    })
-      .then((realRow) => {
-        addedRowMapRef.current.set(tempRow, realRow);
-        // If this add was undone while in flight, delete it now
-        if (cancelledAddsRef.current.has(tempRow)) {
-          cancelledAddsRef.current.delete(tempRow);
-          deleteAction(sheetTitle, realRow).finally(onInflightDone);
-        } else {
-          onInflightDone();
-        }
-      })
-      .catch((e) => {
-        onInflightDone();
-        setPendingAdds((prev) => prev.filter((t) => t.row !== tempRow));
-        setError(e instanceof Error ? e.message : "שגיאה בהוספת הוצאה");
-      });
-  }
-
-  function handleEdit(row: number) {
-    const date = buildDate(editForm.day, sheetMonth);
-    const amount = parseFloat(editForm.amount) || 0;
-
-    // Save original for undo
-    const original = transactions.find((t) => t.row === row);
-    if (original) {
-      setUndoStack((prev) => [
-        ...prev,
-        {
-          type: "edit",
-          row,
-          original: {
-            date: original.date,
-            expense: original.expense,
-            amount: original.amount,
-            category: original.category,
-            card: original.card,
-            notes: original.notes,
-          },
-        },
-      ]);
-    }
-
-    // Optimistic: update immediately
-    const optimisticTx: Transaction = {
-      row,
-      date,
-      expense: editForm.expense,
-      amount,
-      category: editForm.category,
-      card: editForm.card,
-      notes: editForm.notes,
-      tentative: editForm.tentative || undefined,
-    };
-    setPendingEdits((prev) => new Map(prev).set(row, optimisticTx));
-    setEditingRow(null);
-
-    // Save in background
-    inflightRef.current++;
-    editAction(sheetTitle, row, {
-      date,
-      expense: editForm.expense,
-      amount,
-      category: editForm.category,
-      card: editForm.card,
-      notes: editForm.notes,
-      tentative: editForm.tentative,
-    })
-      .then(onInflightDone)
-      .catch((e) => {
-        onInflightDone();
-        setPendingEdits((prev) => {
-          const next = new Map(prev);
-          next.delete(row);
-          return next;
-        });
-        setError(e instanceof Error ? e.message : "שגיאה בעריכת הוצאה");
-      });
-  }
-
-  function handleDelete(row: number) {
-    // Save data for undo
-    const original = transactions.find((t) => t.row === row);
-    if (original) {
-      setUndoStack((prev) => [
-        ...prev,
-        {
-          type: "delete",
-          row,
-          data: {
-            date: original.date,
-            expense: original.expense,
-            amount: original.amount,
-            category: original.category,
-            card: original.card,
-            notes: original.notes,
-          },
-        },
-      ]);
-    }
-
-    // Optimistic: hide immediately
-    setPendingDeletes((prev) => new Set(prev).add(row));
-
-    // Delete in background
-    inflightRef.current++;
-    deleteAction(sheetTitle, row)
-      .then(onInflightDone)
-      .catch((e) => {
-        onInflightDone();
-        setPendingDeletes((prev) => {
-          const next = new Set(prev);
-          next.delete(row);
-          return next;
-        });
-        setError(e instanceof Error ? e.message : "שגיאה במחיקת הוצאה");
-      });
-  }
-
-  const handleUndo = useCallback(() => {
-    setUndoStack((prev) => {
-      if (prev.length === 0) return prev;
-      const next = [...prev];
-      const entry = next.pop()!;
-
-      switch (entry.type) {
-        case "add": {
-          // Remove from optimistic UI
-          setPendingAdds((p) => p.filter((t) => t.row !== entry.tempRow));
-          // If already saved, delete from server
-          const realRow = addedRowMapRef.current.get(entry.tempRow);
-          if (realRow !== undefined) {
-            addedRowMapRef.current.delete(entry.tempRow);
-            inflightRef.current++;
-            deleteAction(sheetTitle, realRow)
-              .then(onInflightDone)
-              .catch(onInflightDone);
-          } else {
-            // Still in flight — mark as cancelled so it gets deleted on completion
-            cancelledAddsRef.current.add(entry.tempRow);
-          }
-          break;
-        }
-        case "edit": {
-          // Revert optimistic edit
-          setPendingEdits((p) => {
-            const m = new Map(p);
-            m.delete(entry.row);
-            return m;
-          });
-          // Revert on server
-          inflightRef.current++;
-          editAction(sheetTitle, entry.row, entry.original)
-            .then(onInflightDone)
-            .catch(onInflightDone);
-          break;
-        }
-        case "delete": {
-          // Show row again
-          setPendingDeletes((p) => {
-            const s = new Set(p);
-            s.delete(entry.row);
-            return s;
-          });
-          // Re-add on server
-          inflightRef.current++;
-          addAction(sheetTitle, entry.data)
-            .then(onInflightDone)
-            .catch(onInflightDone);
-          break;
-        }
-      }
-
-      return next;
-    });
-  }, [sheetTitle, addAction, deleteAction, editAction]);
 
   // Refs for current add/edit actions so the global listener always sees latest
   const handleAddRef = useRef(handleAdd);
@@ -708,7 +334,7 @@ export function TransactionTable({
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        handleUndo();
+        optimistic.handleUndo();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
@@ -718,7 +344,7 @@ export function TransactionTable({
         } else {
           handleAddRef.current();
         }
-        flushRevalidate();
+        optimistic.flushRevalidate();
         return;
       }
       if (e.key === "Enter") {
@@ -741,7 +367,7 @@ export function TransactionTable({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleUndo, selectedRows.size]);
+  }, [optimistic.handleUndo, selectedRows.size]);
 
   // Click outside edit row → save and exit
   useEffect(() => {
@@ -950,12 +576,7 @@ export function TransactionTable({
         {hasActiveFilters && (
           <button
             className="btn btn-sm btn-outline-secondary"
-            onClick={() => {
-              setSearchQuery("");
-              setFilterCategories(new Set());
-              setExcludeCategories(new Set());
-              setFilterCards(new Set());
-            }}
+            onClick={clearFilters}
           >
             נקה
           </button>
@@ -971,19 +592,19 @@ export function TransactionTable({
             type="checkbox"
             className="form-check-input m-0"
             checked={
-              filteredTransactions.filter((t) => t.row >= 0).length > 0 &&
-              filteredTransactions
+              filteredRows.filter((t) => t.row >= 0).length > 0 &&
+              filteredRows
                 .filter((t) => t.row >= 0)
                 .every((t) => selectedRows.has(t.row))
             }
-            onChange={handleSelectAll}
+            onChange={() => selectAll(filteredRows)}
             title="בחר הכל"
           />
         </div>
         <div
           className="tx-header-col"
           style={{ flex: COL.date }}
-          onClick={() => handleSort("date")}
+          onClick={() => toggleSort("date")}
         >
           תאריך
           <span className="small text-secondary">{sortIndicator("date")}</span>
@@ -991,7 +612,7 @@ export function TransactionTable({
         <div
           className="tx-header-col"
           style={{ flex: COL.expense }}
-          onClick={() => handleSort("expense")}
+          onClick={() => toggleSort("expense")}
         >
           תיאור
           <span className="small text-secondary">
@@ -1001,7 +622,7 @@ export function TransactionTable({
         <div
           className="tx-header-col"
           style={{ flex: COL.amount }}
-          onClick={() => handleSort("amount")}
+          onClick={() => toggleSort("amount")}
         >
           סכום
           <span className="small text-secondary">
@@ -1011,7 +632,7 @@ export function TransactionTable({
         <div
           className="tx-header-col"
           style={{ flex: COL.category }}
-          onClick={() => handleSort("category")}
+          onClick={() => toggleSort("category")}
         >
           קטגוריה
           <span className="small text-secondary">
@@ -1021,7 +642,7 @@ export function TransactionTable({
         <div
           className="tx-header-col"
           style={{ flex: COL.card }}
-          onClick={() => handleSort("card")}
+          onClick={() => toggleSort("card")}
         >
           אמצעי תשלום
           <span className="small text-secondary">{sortIndicator("card")}</span>
@@ -1032,7 +653,7 @@ export function TransactionTable({
       {renderInputRow("add", addForm, setAddForm, handleAdd, "הוסף")}
 
       {/* Transaction rows */}
-      {filteredTransactions.map((t) =>
+      {filteredRows.map((t) =>
         editingRow === t.row ? (
           renderInputRow(
             `edit-${t.row}`,
@@ -1059,7 +680,7 @@ export function TransactionTable({
                   checked={selectedRows.has(t.row)}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleCheckboxChange(t.row, e);
+                    toggleRow(t.row, e.shiftKey);
                   }}
                   readOnly
                 />
@@ -1098,7 +719,7 @@ export function TransactionTable({
         ),
       )}
 
-      {filteredTransactions.length === 0 && (
+      {filteredRows.length === 0 && (
         <div className="text-center text-secondary py-4">אין הוצאות עדיין</div>
       )}
 

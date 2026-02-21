@@ -5,21 +5,17 @@ import * as XLSX from "xlsx";
 import { addTransactionsBatch, revalidatePageAction } from "@/lib/actions";
 import type {
   TransactionInput,
+  RecurringExpense,
   CategoryMapping,
   ExpenseRenameRule,
-  RecurringExpense,
 } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { SearchableSelect } from "@/components/searchable-select";
+import { usePageConfig } from "@/contexts/page-config-context";
 
 interface Props {
   sheetTitle: string;
-  cards: string[];
-  cardColorMap: Record<string, string>;
   pagePath: string;
-  categoryMappings?: CategoryMapping[];
-  expenseRenameRules?: ExpenseRenameRule[];
-  recurringExpenses?: RecurringExpense[];
 }
 
 interface ParsedRow {
@@ -192,15 +188,12 @@ function matchRecurringExpense(
   );
 }
 
-export function ExcelImportButton({
-  sheetTitle,
-  cards,
-  cardColorMap,
-  pagePath,
-  categoryMappings,
-  expenseRenameRules,
-  recurringExpenses,
-}: Props) {
+export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
+  const {
+    allCards: cards,
+    cardColorMap,
+    config: { categoryMappings, expenseRenameRules, recurringExpenses },
+  } = usePageConfig();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [renamedRows, setRenamedRows] = useState<ParsedRow[] | null>(null);
   const [selectedCard, setSelectedCard] = useState("");

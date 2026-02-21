@@ -126,6 +126,49 @@ export function AnnualDashboard({
     [filteredData],
   );
 
+  const summaryCardRows = useMemo(() => {
+    const activeMonths = filteredData.totals.months.filter(
+      (v) => v !== null,
+    ).length;
+    const avgMonthlyIncome =
+      activeMonths > 0 ? data.totalIncome / activeMonths : 0;
+    const avgMonthlySavings =
+      activeMonths > 0 ? data.totalSavings / activeMonths : 0;
+    const allCards = [
+      {
+        label: 'סה"כ הוצאות שנתי',
+        amount: filteredData.totals.total ?? 0,
+        gradient: "card-orange-gradient",
+      },
+      {
+        label: 'סה"כ הכנסות שנתי',
+        amount: data.totalIncome,
+        gradient: "card-green-gradient",
+      },
+      {
+        label: "חיסכון שנתי",
+        amount: data.totalSavings,
+        gradient: "card-purple-gradient",
+      },
+      {
+        label: "ממוצע הוצאות חודשי",
+        amount: filteredData.totals.average ?? 0,
+        gradient: "card-orange-light-gradient",
+      },
+      {
+        label: "ממוצע הכנסה חודשי",
+        amount: avgMonthlyIncome,
+        gradient: "card-green-light-gradient",
+      },
+      {
+        label: "ממוצע חיסכון חודשי",
+        amount: avgMonthlySavings,
+        gradient: "card-purple-light-gradient",
+      },
+    ];
+    return [allCards.slice(0, 3), allCards.slice(3, 6), allCards.slice(6)];
+  }, [filteredData, data.totalIncome, data.totalSavings]);
+
   return (
     <div className="container-fluid px-4 py-3">
       <div className="page-header mb-4">
@@ -145,80 +188,32 @@ export function AnnualDashboard({
       </div>
 
       {/* Summary cards – 2 rows of 3 */}
-      {(() => {
-        const activeMonths = filteredData.totals.months.filter(
-          (v) => v !== null,
-        ).length;
-        const avgMonthlyIncome =
-          activeMonths > 0 ? data.totalIncome / activeMonths : 0;
-        const avgMonthlySavings =
-          activeMonths > 0 ? data.totalSavings / activeMonths : 0;
-        const allCards = [
-          {
-            label: 'סה"כ הוצאות שנתי',
-            amount: filteredData.totals.total ?? 0,
-            gradient: "card-orange-gradient",
-          },
-          {
-            label: 'סה"כ הכנסות שנתי',
-            amount: data.totalIncome,
-            gradient: "card-green-gradient",
-          },
-          {
-            label: "חיסכון שנתי",
-            amount: data.totalSavings,
-            gradient: "card-purple-gradient",
-          },
-          {
-            label: "ממוצע הוצאות חודשי",
-            amount: filteredData.totals.average ?? 0,
-            gradient: "card-orange-light-gradient",
-          },
-          {
-            label: "ממוצע הכנסה חודשי",
-            amount: avgMonthlyIncome,
-            gradient: "card-green-light-gradient",
-          },
-          {
-            label: "ממוצע חיסכון חודשי",
-            amount: avgMonthlySavings,
-            gradient: "card-purple-light-gradient",
-          },
-        ];
-        const rows = [
-          allCards.slice(0, 3),
-          allCards.slice(3, 6),
-          allCards.slice(6),
-        ];
-        return (
-          <>
-            {rows.map((rowCards, ri) => (
-              <div key={ri} className="row g-3 mb-3">
-                {rowCards.map((card) => {
-                  const Icon = getSummaryCardIcon(card.label);
-                  return (
-                    <div key={card.label} className="col">
-                      <div
-                        className={`card ${card.gradient} rounded-3 p-3 h-100`}
-                      >
-                        <div className="d-flex align-items-center gap-2 mb-2">
-                          <span className="summary-card-icon">
-                            <Icon size={18} />
-                          </span>
-                          <span className="small opacity-75">{card.label}</span>
-                        </div>
-                        <div className="h5 fw-bold mb-0 text-center">
-                          {formatCurrency(card.amount)}
-                        </div>
-                      </div>
+      <>
+        {summaryCardRows.map((rowCards, ri) => (
+          <div key={ri} className="row g-3 mb-3">
+            {rowCards.map((card) => {
+              const Icon = getSummaryCardIcon(card.label);
+              return (
+                <div key={card.label} className="col">
+                  <div
+                    className={`card ${card.gradient} rounded-3 p-3 h-100`}
+                  >
+                    <div className="d-flex align-items-center gap-2 mb-2">
+                      <span className="summary-card-icon">
+                        <Icon size={18} />
+                      </span>
+                      <span className="small opacity-75">{card.label}</span>
                     </div>
-                  );
-                })}
-              </div>
-            ))}
-          </>
-        );
-      })()}
+                    <div className="h5 fw-bold mb-0 text-center">
+                      {formatCurrency(card.amount)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </>
 
       {/* Charts row – 50/50 */}
       <div className="row g-4 mb-4">

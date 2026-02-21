@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState } from "react";
 import {
   Calculator,
   Save,
@@ -9,17 +9,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import type {
-  StockHolding,
-  StockConfig,
-  LabelAllocation,
-  StockDefinition,
-} from "@/lib/types";
-import {
-  calculateRebalance,
-  recalcProjections,
-} from "@/lib/rebalance-calculator";
-import { saveLabelAllocationsAction } from "@/lib/actions";
+import type { StockHolding, StockConfig } from "@/lib/types";
+import { useRebalanceCalculator } from "@/hooks/use-rebalance-calculator";
 
 interface Props {
   holdings: StockHolding[];
@@ -31,262 +22,40 @@ function formatNum(n: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-function stockLabel(s: StockDefinition): string {
-  return s.displayName || s.symbol;
-}
-
 export function RebalanceCalculator({ holdings, config }: Props) {
   const [open, setOpen] = useState(false);
 
-  const allLabels = useMemo(() => {
-    const labels = new Set<string>();
-    for (const s of config.stocks) {
-      if (s.label) labels.add(s.label);
-    }
-    for (const h of holdings) {
-      if (h.label) labels.add(h.label);
-    }
-    return Array.from(labels);
-  }, [config.stocks, holdings]);
-
-  const [allocations, setAllocations] = useState<LabelAllocation[]>(() => {
-    return config.labelAllocations
-      .filter((a) => a.targetPercent > 0 || a.selectedStock)
-      .map((a) => ({
-        label: a.label,
-        targetPercent: a.targetPercent,
-        selectedStock: a.selectedStock,
-      }));
-  });
-
-  const [investmentAmount, setInvestmentAmount] = useState<string>("");
-  const [adjustedAmounts, setAdjustedAmounts] = useState<
-    Record<string, number>
-  >({});
-  const [selectedStocks, setSelectedStocks] = useState<Record<string, string>>(
-    () => {
-      const map: Record<string, string> = {};
-      for (const a of config.labelAllocations) {
-        if (a.selectedStock) map[a.label] = a.selectedStock;
-      }
-      return map;
-    },
-  );
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [isManuallyAdjusted, setIsManuallyAdjusted] = useState(false);
-  const [showAddMenu, setShowAddMenu] = useState(false);
-  const [manualShareCounts, setManualShareCounts] = useState<
-    Record<string, number>
-  >({});
-  const addBtnRef = useRef<HTMLButtonElement>(null);
-
-  const activeLabels = allocations.map((a) => a.label);
-  const unusedLabels = allLabels.filter((l) => !activeLabels.includes(l));
-
-  const totalPercent = allocations.reduce((s, a) => s + a.targetPercent, 0);
-  const isValid = Math.abs(totalPercent - 100) < 0.01;
-
-  const currentValueByLabel = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const h of holdings) {
-      if (h.term !== "ארוך") continue;
-      const label = h.label || "אחר";
-      map[label] = (map[label] ?? 0) + h.currentValueILS;
-    }
-    return map;
-  }, [holdings]);
-
-  const stocksByLabel = useMemo(() => {
-    const map: Record<string, StockDefinition[]> = {};
-    for (const s of config.stocks) {
-      if (!s.label) continue;
-      if (!map[s.label]) map[s.label] = [];
-      map[s.label].push(s);
-    }
-    return map;
-  }, [config.stocks]);
-
-  const priceBySymbol = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const h of holdings) {
-      // Use currentPriceILS if available, otherwise derive from value/shares
-      const price =
-        h.currentPriceILS > 0
-          ? h.currentPriceILS
-          : h.totalShares > 0
-            ? h.currentValueILS / h.totalShares
-            : 0;
-      if (price > 0) {
-        map[h.symbol] = price;
-      }
-    }
-    return map;
-  }, [holdings]);
-
-  const investment = parseFloat(investmentAmount) || 0;
-
-  const recommendations = useMemo(() => {
-    if (allocations.length === 0) return [];
-    if (isManuallyAdjusted) {
-      return recalcProjections(
-        currentValueByLabel,
-        allocations,
-        adjustedAmounts,
-      );
-    }
-    return calculateRebalance({
-      currentValueByLabel,
-      targetAllocations: allocations,
-      newInvestment: investment,
-    });
-  }, [
-    currentValueByLabel,
+  const {
+    allLabels,
     allocations,
-    investment,
-    isManuallyAdjusted,
-    adjustedAmounts,
-  ]);
-
-  const effectiveAmounts = useMemo(() => {
-    if (isManuallyAdjusted) return adjustedAmounts;
-    const amounts: Record<string, number> = {};
-    for (const r of recommendations) {
-      amounts[r.label] = r.recommendedAmount;
-    }
-    return amounts;
-  }, [isManuallyAdjusted, adjustedAmounts, recommendations]);
-
-  const totalInvesting = recommendations.reduce(
-    (s, r) => s + (effectiveAmounts[r.label] ?? r.recommendedAmount),
-    0,
-  );
-
-  /** Pre-compute per-row data with actual share costs and real new percentages */
-  const tableRows = useMemo(() => {
-    const currentTotal = Object.values(currentValueByLabel).reduce(
-      (s, v) => s + v,
-      0,
-    );
-
-    // First pass: compute actual costs per label (whole shares)
-    const rows = recommendations.map((rec) => {
-      const allocatedAmount =
-        effectiveAmounts[rec.label] ?? rec.recommendedAmount;
-      const selectedSymbol = selectedStocks[rec.label];
-      // Try selected stock price, then fall back to any stock in this label
-      let stockPrice = selectedSymbol
-        ? priceBySymbol[selectedSymbol] ?? 0
-        : 0;
-      if (stockPrice === 0 && selectedSymbol) {
-        // Fallback: find price from any holding with this label
-        const labelStocks = stocksByLabel[rec.label] ?? [];
-        for (const s of labelStocks) {
-          if (priceBySymbol[s.symbol] > 0) {
-            stockPrice = priceBySymbol[s.symbol];
-            break;
-          }
-        }
-      }
-      const autoShareCount =
-        stockPrice > 0 ? Math.floor(allocatedAmount / stockPrice) : 0;
-      const shareCount =
-        rec.label in manualShareCounts
-          ? manualShareCounts[rec.label]
-          : autoShareCount;
-      const actualCost = shareCount * stockPrice;
-
-      return {
-        label: rec.label,
-        currentValue: rec.currentValue,
-        currentPercent: rec.currentPercent,
-        targetPercent: rec.targetPercent,
-        stockPrice,
-        shareCount,
-        actualCost,
-      };
-    });
-
-    // Sum of actual money spent on whole shares
-    const totalActualCost = rows.reduce((s, r) => s + r.actualCost, 0);
-    const newTotal = currentTotal + totalActualCost;
-
-    // Second pass: compute real new percentages
-    return rows.map((row) => {
-      const projectedValue = row.currentValue + row.actualCost;
-      const newPercent = newTotal > 0 ? (projectedValue / newTotal) * 100 : 0;
-      const delta = newPercent - row.targetPercent;
-      return { ...row, projectedValue, newPercent, delta, totalActualCost };
-    });
-  }, [
-    recommendations,
-    effectiveAmounts,
+    investmentAmount,
+    setInvestmentAmount,
     selectedStocks,
-    priceBySymbol,
-    currentValueByLabel,
-    manualShareCounts,
+    saveStatus,
+    isManuallyAdjusted,
+    setIsManuallyAdjusted,
+    showAddMenu,
+    setShowAddMenu,
+    setManualShareCounts,
+    addBtnRef,
+    unusedLabels,
+    totalPercent,
+    isValid,
+    investment,
     stocksByLabel,
-  ]);
+    tableRows,
+    handleShareCountChange,
+    handleAllocChange,
+    handleAmountChange,
+    handleStockChange,
+    addLabel,
+    removeLabel,
+    handleSave,
+    stockLabel,
+  } = useRebalanceCalculator(holdings, config);
 
-  function handleShareCountChange(label: string, value: string) {
-    const num = parseInt(value) || 0;
-    setManualShareCounts((prev) => ({ ...prev, [label]: Math.max(0, num) }));
-  }
-
-  function handleAllocChange(label: string, value: string) {
-    const num = parseFloat(value) || 0;
-    setAllocations((prev) =>
-      prev.map((a) => (a.label === label ? { ...a, targetPercent: num } : a)),
-    );
-    setIsManuallyAdjusted(false);
-    setSaved(false);
-  }
-
-  function handleAmountChange(label: string, value: string) {
-    const num = parseFloat(value) || 0;
-    setAdjustedAmounts((prev) => ({ ...prev, [label]: num }));
-    setIsManuallyAdjusted(true);
-  }
-
-  function handleStockChange(label: string, value: string) {
-    setSelectedStocks((prev) => ({ ...prev, [label]: value }));
-    setSaved(false);
-  }
-
-  function addLabel(label: string) {
-    setAllocations((prev) => [...prev, { label, targetPercent: 0 }]);
-    setShowAddMenu(false);
-    setSaved(false);
-  }
-
-  function removeLabel(label: string) {
-    setAllocations((prev) => prev.filter((a) => a.label !== label));
-    setSelectedStocks((prev) => {
-      const next = { ...prev };
-      delete next[label];
-      return next;
-    });
-    setIsManuallyAdjusted(false);
-    setSaved(false);
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const allAllocations = allLabels.map((label) => {
-        const alloc = allocations.find((a) => a.label === label);
-        return {
-          label,
-          targetPercent: alloc?.targetPercent ?? 0,
-          selectedStock: selectedStocks[label] || undefined,
-        };
-      });
-      await saveLabelAllocationsAction(allAllocations);
-      setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  }
+  const saving = saveStatus === "saving";
+  const saved = saveStatus === "saved";
 
   return (
     <div className="card rounded-3 border mb-4 overflow-hidden">

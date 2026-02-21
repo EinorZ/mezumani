@@ -16,7 +16,9 @@ import type {
   ChartRange,
   PortfolioHistoryPoint,
   PortfolioReturns,
+  StockPortfolioTotals,
 } from "./types";
+
 
 /**
  * Compute the full stock dashboard data.

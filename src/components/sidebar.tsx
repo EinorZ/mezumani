@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -87,7 +88,7 @@ export function Sidebar({ yearGroups }: Props) {
   const router = useRouter();
   const currentYearSuffix = new Date().getFullYear() % 100;
 
-  const [pinned, setPinned] = useState(false);
+  const [pinned, setPinned] = useLocalStorage("sidebar-pinned", false);
   const [showVacationForm, setShowVacationForm] = useState<number | null>(null);
 
   // Drag-to-reorder for vacation lists (keyed by year)
@@ -102,16 +103,8 @@ export function Sidebar({ yearGroups }: Props) {
   const [vacationName, setVacationName] = useState("");
   const [vacationSubmitting, setVacationSubmitting] = useState(false);
 
-  useEffect(() => {
-    setPinned(localStorage.getItem("sidebar-pinned") === "true");
-  }, []);
-
   function togglePin() {
-    setPinned((prev) => {
-      const next = !prev;
-      localStorage.setItem("sidebar-pinned", String(next));
-      return next;
-    });
+    setPinned(!pinned);
   }
 
   const [expandedYears, setExpandedYears] = useState<Set<number>>(() => {

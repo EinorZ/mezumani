@@ -20,8 +20,16 @@ import type {
   RsuGrant,
   RsuVest,
 } from "@/lib/types";
+import {
+  isFutureDate,
+  isMatured,
+  isVestComingSoon,
+  getMaturationDate,
+  formatSheetDate,
+} from "@/lib/nvidia-utils";
 import { NvidiaAddPanel, type NvidiaPanelMode } from "./nvidia-add-panel";
-import { revalidatePageAction, toggleRsuSoldAction } from "@/lib/actions";
+import { toggleRsuSoldAction } from "@/lib/actions";
+import { usePageRefresh } from "@/hooks/use-page-refresh";
 
 interface Props {
   data: NvidiaCompensationData;
@@ -31,56 +39,13 @@ function formatUsd(amount: number): string {
   return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-const MATURATION_MONTHS = 24;
-
-function parseSheetDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const parts = dateStr.split("/");
-  if (parts.length < 3) return null;
-  let year = parseInt(parts[2], 10);
-  if (year < 100) year += 2000;
-  return new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-}
-
-function getMaturationDate(grantDate: string): Date | null {
-  const d = parseSheetDate(grantDate);
-  if (!d) return null;
-  d.setMonth(d.getMonth() + MATURATION_MONTHS);
-  return d;
-}
-
-function isFutureDate(dateStr: string): boolean {
-  const d = parseSheetDate(dateStr);
-  if (!d) return false;
-  return d > new Date();
-}
-
-function isMatured(grantDate: string): boolean {
-  const matDate = getMaturationDate(grantDate);
-  if (!matDate) return false;
-  return new Date() >= matDate;
-}
-
-function isVestComingSoon(vestDate: string): boolean {
-  const d = parseSheetDate(vestDate);
-  if (!d) return false;
-  const now = new Date();
-  const oneMonthFromNow = new Date(now);
-  oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-  return d > now && d <= oneMonthFromNow;
-}
-
-function formatSheetDate(d: Date): string {
-  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() % 100}`;
-}
-
 
 export function NvidiaDashboard({ data }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelMode, setPanelMode] = useState<NvidiaPanelMode>("addRsuGrant");
   const [panelEditData, setPanelEditData] = useState<Record<string, unknown>>({});
-  const [refreshing, setRefreshing] = useState(false);
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
+  const { refreshing, handleRefresh } = usePageRefresh("/nvidia");
 
   const { grants, currentNvdaPriceUsd, usdToIls, summary } = data;
 
@@ -88,16 +53,6 @@ export function NvidiaDashboard({ data }: Props) {
     setPanelMode(mode);
     setPanelEditData(editData ?? {});
     setPanelOpen(true);
-  }
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      await revalidatePageAction("/nvidia");
-      window.location.reload();
-    } finally {
-      setRefreshing(false);
-    }
   }
 
   function toggleGrant(grantDate: string) {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { SummaryCard } from "@/lib/types";
+import { MultiSearchableSelect } from "@/components/multi-searchable-select";
 
 interface Props {
   items: SummaryCard[];
@@ -15,79 +16,6 @@ interface Props {
   ) => Promise<void>;
 }
 
-function CategoryDropdown({
-  availableCategories,
-  selected,
-  onToggle,
-}: {
-  availableCategories: string[];
-  selected: string[];
-  onToggle: (cat: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const filtered = availableCategories.filter((cat) =>
-    cat.includes(search.trim()),
-  );
-
-  return (
-    <div className="position-relative flex-grow-1">
-      <button
-        type="button"
-        className="form-control form-control-sm text-end d-flex align-items-center justify-content-between"
-        onClick={() => {
-          setOpen((v) => !v);
-          setSearch("");
-        }}
-        style={{ cursor: "pointer" }}
-      >
-        <span className="text-secondary" style={{ fontSize: "0.85em" }}>
-          {selected.length > 0 ? selected.join(", ") : "בחר קטגוריות..."}
-        </span>
-        <span style={{ fontSize: "0.7em" }}>&#9662;</span>
-      </button>
-      {open && (
-        <div
-          className="position-absolute border rounded bg-white shadow-sm"
-          style={{
-            top: "100%",
-            right: 0,
-            left: 0,
-            zIndex: 10,
-            maxHeight: "14rem",
-            overflowY: "auto",
-          }}
-        >
-          <div className="sticky-top bg-white p-1 border-bottom">
-            <input
-              className="form-control form-control-sm"
-              placeholder="חיפוש..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-            />
-          </div>
-          {filtered.map((cat) => (
-            <label
-              key={cat}
-              className="d-flex align-items-center gap-2 px-2 py-1 small"
-              style={{ cursor: "pointer" }}
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(cat)}
-                onChange={() => onToggle(cat)}
-              />
-              {cat}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function SummaryCardList({
   items,
   availableCategories,
@@ -96,29 +24,16 @@ export function SummaryCardList({
   onUpdate,
 }: Props) {
   const [label, setLabel] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editLabel, setEditLabel] = useState("");
-  const [editSelected, setEditSelected] = useState<string[]>([]);
-  const editRef = useRef<HTMLDivElement>(null);
-
-  function toggleCategory(cat: string) {
-    setSelected((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
-    );
-  }
-
-  function toggleEditCategory(cat: string) {
-    setEditSelected((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
-    );
-  }
+  const [editSelected, setEditSelected] = useState<Set<string>>(new Set());
 
   function startEdit(idx: number) {
     setEditingIdx(idx);
     setEditLabel(items[idx].label);
-    setEditSelected([...items[idx].categories]);
+    setEditSelected(new Set(items[idx].categories));
   }
 
   function cancelEdit() {
@@ -129,10 +44,10 @@ export function SummaryCardList({
     if (editingIdx === null) return;
     const oldLabel = items[editingIdx].label;
     const trimmed = editLabel.trim();
-    if (!trimmed || editSelected.length === 0) return;
+    if (!trimmed || editSelected.size === 0) return;
     setSubmitting(true);
     try {
-      await onUpdate(oldLabel, trimmed, editSelected.join(","));
+      await onUpdate(oldLabel, trimmed, [...editSelected].join(","));
       setEditingIdx(null);
     } finally {
       setSubmitting(false);
@@ -141,12 +56,12 @@ export function SummaryCardList({
 
   async function handleAdd() {
     const trimmedLabel = label.trim();
-    if (!trimmedLabel || selected.length === 0) return;
+    if (!trimmedLabel || selected.size === 0) return;
     setSubmitting(true);
     try {
-      await onAdd(trimmedLabel, selected.join(","));
+      await onAdd(trimmedLabel, [...selected].join(","));
       setLabel("");
-      setSelected([]);
+      setSelected(new Set());
     } finally {
       setSubmitting(false);
     }
@@ -168,7 +83,6 @@ export function SummaryCardList({
           editingIdx === idx ? (
             <div
               key={`${item.label}-${idx}`}
-              ref={editRef}
               className="d-flex gap-2 align-items-start border rounded p-2 bg-light"
             >
               <input
@@ -178,16 +92,18 @@ export function SummaryCardList({
                 style={{ maxWidth: "8rem" }}
                 autoFocus
               />
-              <CategoryDropdown
-                availableCategories={availableCategories}
+              <MultiSearchableSelect
+                options={availableCategories}
+                colorMap={{}}
                 selected={editSelected}
-                onToggle={toggleEditCategory}
+                onChange={setEditSelected}
+                placeholder="בחר קטגוריות..."
               />
               <button
                 className="btn btn-sm btn-success"
                 onClick={handleSaveEdit}
                 disabled={
-                  submitting || !editLabel.trim() || editSelected.length === 0
+                  submitting || !editLabel.trim() || editSelected.size === 0
                 }
               >
                 {submitting ? "..." : "שמור"}
@@ -237,15 +153,17 @@ export function SummaryCardList({
           onChange={(e) => setLabel(e.target.value)}
           style={{ maxWidth: "8rem" }}
         />
-        <CategoryDropdown
-          availableCategories={availableCategories}
+        <MultiSearchableSelect
+          options={availableCategories}
+          colorMap={{}}
           selected={selected}
-          onToggle={toggleCategory}
+          onChange={setSelected}
+          placeholder="בחר קטגוריות..."
         />
         <button
           className="btn btn-sm btn-success"
           onClick={handleAdd}
-          disabled={submitting || !label.trim() || selected.length === 0}
+          disabled={submitting || !label.trim() || selected.size === 0}
         >
           {submitting ? "..." : "הוסף"}
         </button>

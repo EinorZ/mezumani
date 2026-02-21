@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import type { StockConfig, TransactionType, InvestmentTerm } from "@/lib/types";
 import { addStockTransactionAction } from "@/lib/actions";
+import { ALL_TERMS, TERM_LABELS } from "@/lib/constants";
+import { useEscapeKey } from "@/hooks/use-escape-key";
 
 interface Props {
   config: StockConfig;
@@ -30,13 +32,7 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
   const selectedStock = config.stocks.find((s) => s.symbol === symbol);
 
-  useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleEsc);
-    return () => document.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
+  useEscapeKey(onClose);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -215,10 +211,9 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
               value={term}
               onChange={(e) => setTerm(e.target.value as InvestmentTerm)}
             >
-              <option value="קצר">קצר טווח</option>
-              <option value="בינוני">בינוני טווח</option>
-              <option value="ארוך">ארוך טווח</option>
-              <option value="לימבו">לימבו</option>
+              {ALL_TERMS.map((t) => (
+                <option key={t} value={t}>{TERM_LABELS[t]}</option>
+              ))}
             </select>
           </div>
 

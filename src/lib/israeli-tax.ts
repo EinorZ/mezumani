@@ -166,6 +166,7 @@ export function calcRsuNet(params: {
   nationalInsurance: number;
   healthTax: number;
   capitalGainsTax: number;
+  yasafTax: number;
   totalTax: number;
   netIls: number;
   matured: boolean;

@@ -59,6 +59,7 @@ import {
   SETTINGS_RANGE_ALLOC_LABELS,
   SETTINGS_RANGE_ALLOC_PERCENTS,
   SETTINGS_RANGE_ALLOC_STOCKS,
+  SETTINGS_RANGE_ALLOC_COLORS,
   STOCKS_SHEET_NAME,
   STOCK_SHEET_HEADERS,
   DEFAULT_CATEGORY_COLOR,
@@ -1982,6 +1983,7 @@ export async function getStockConfig(): Promise<StockConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_LABELS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_PERCENTS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_STOCKS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_COLORS}`,
     ],
   });
 
@@ -2034,11 +2036,13 @@ export async function getStockConfig(): Promise<StockConfig> {
   const allocLabels = extract(11);
   const allocPercents = extractAligned(12, allocLabels.length);
   const allocStocks = extractAligned(13, allocLabels.length);
+  const allocColors = extractAligned(14, allocLabels.length);
 
   const labelAllocations: LabelAllocation[] = allocLabels.map((label, i) => ({
     label,
     targetPercent: parseFloat(allocPercents[i]) || 0,
     selectedStock: allocStocks[i] || undefined,
+    color: allocColors[i] || undefined,
   }));
 
   return { stocks, goals, brokers, labelAllocations };
@@ -2257,19 +2261,20 @@ export async function saveLabelAllocations(
   // Clear existing data
   await sheets.spreadsheets.values.clear({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L2:N100`,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:O100`,
   });
   if (allocations.length === 0) return;
   // Write new data
   await sheets.spreadsheets.values.update({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!L2:N${allocations.length + 1}`,
+    range: `'${SETTINGS_SHEET_NAME}'!L2:O${allocations.length + 1}`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: allocations.map((a) => [
         a.label,
         String(a.targetPercent),
         a.selectedStock ?? "",
+        a.color ?? "",
       ]),
     },
   });

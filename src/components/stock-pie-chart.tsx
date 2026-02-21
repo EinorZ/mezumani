@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
@@ -14,6 +14,7 @@ import {
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
 import { getLabelColor } from "@/lib/constants";
+import { useChartLegend } from "@/hooks/use-chart-legend";
 
 export type ChartMode = "donut" | "treemap";
 
@@ -27,11 +28,12 @@ interface PieDataItem {
 
 interface Props {
   holdings: StockHolding[];
+  labelColorMap?: Record<string, string>;
   title?: string;
   chartMode?: ChartMode;
 }
 
-function useChartData(holdings: StockHolding[]) {
+function useChartData(holdings: StockHolding[], labelColorMap?: Record<string, string>) {
   return useMemo(() => {
     const total = holdings.reduce((s, h) => s + h.currentValueILS, 0);
     const items: PieDataItem[] = holdings
@@ -42,17 +44,16 @@ function useChartData(holdings: StockHolding[]) {
         symbol: h.symbol,
         value: h.currentValueILS,
         percent: total > 0 ? (h.currentValueILS / total) * 100 : 0,
-        color: getLabelColor(h.label || h.symbol),
+        color: (h.label && labelColorMap?.[h.label]) ?? getLabelColor(h.label || h.symbol),
       }));
     return { data: items, totalValue: total };
-  }, [holdings]);
+  }, [holdings, labelColorMap]);
 }
 
 /* ── Improved Donut ── */
 function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: number }) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | undefined>(undefined);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { hidden, hoveredIndex, handleClick, handleDblClick, handleHover, isHidden } =
+    useChartLegend<PieDataItem>(data, (item) => item.symbol);
 
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.symbol));
@@ -62,35 +63,6 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
 
   const visibleTotal = useMemo(() => visibleData.reduce((s, d) => s + d.value, 0), [visibleData]);
   const hoveredItem = hoveredIndex !== undefined ? visibleData[hoveredIndex] : null;
-
-  const handleLegendClick = useCallback((symbol: string) => {
-    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
-    clickTimer.current = setTimeout(() => {
-      setHidden((prev) => {
-        const next = new Set(prev);
-        if (next.has(symbol)) { next.delete(symbol); } else {
-          // Don't hide if it's the last visible one
-          const wouldRemain = data.filter((d) => !next.has(d.symbol) && d.symbol !== symbol);
-          if (wouldRemain.length > 0) next.add(symbol);
-        }
-        return next;
-      });
-      setHoveredIndex(undefined);
-    }, 250);
-  }, [data]);
-
-  const handleLegendDblClick = useCallback((symbol: string) => {
-    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
-    setHidden((prev) => {
-      const visible = data.filter((d) => !prev.has(d.symbol));
-      if (visible.length === 1 && visible[0].symbol === symbol) {
-        return new Set(); // restore all
-      }
-      // isolate: hide everything except this one
-      return new Set(data.filter((d) => d.symbol !== symbol).map((d) => d.symbol));
-    });
-    setHoveredIndex(undefined);
-  }, [data]);
 
   return (
     <>
@@ -127,8 +99,8 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
                   />
                 );
               }}
-              onMouseEnter={(_: unknown, index: number) => setHoveredIndex(index)}
-              onMouseLeave={() => setHoveredIndex(undefined)}
+              onMouseEnter={(_: unknown, index: number) => handleHover(index)}
+              onMouseLeave={() => handleHover(undefined)}
             >
               {visibleData.map((item, index) => (
                 <Cell key={`cell-${index}`} fill={item.color} />
@@ -174,7 +146,7 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
       {/* Compact legend */}
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
         {data.map((item) => {
-          const isHidden = hidden.has(item.symbol);
+          const itemIsHidden = isHidden(item.symbol);
           const visibleIdx = visibleData.findIndex((d) => d.symbol === item.symbol);
           return (
             <div
@@ -182,20 +154,20 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",
-                opacity: isHidden ? 0.35 : (hoveredIndex !== undefined && hoveredIndex !== visibleIdx ? 0.5 : 1),
+                opacity: itemIsHidden ? 0.35 : (hoveredIndex !== undefined && hoveredIndex !== visibleIdx ? 0.5 : 1),
                 transition: "opacity 150ms ease",
                 cursor: "pointer",
-                textDecoration: isHidden ? "line-through" : "none",
+                textDecoration: itemIsHidden ? "line-through" : "none",
                 userSelect: "none",
               }}
-              onMouseEnter={() => { if (!isHidden) setHoveredIndex(visibleIdx); }}
-              onMouseLeave={() => setHoveredIndex(undefined)}
-              onClick={() => handleLegendClick(item.symbol)}
-              onDoubleClick={() => handleLegendDblClick(item.symbol)}
+              onMouseEnter={() => { if (!itemIsHidden) handleHover(visibleIdx); }}
+              onMouseLeave={() => handleHover(undefined)}
+              onClick={() => handleClick(item.symbol)}
+              onDoubleClick={() => handleDblClick(item.symbol)}
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: isHidden ? "#ccc" : item.color }}
+                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
               />
               <span>{item.name}</span>
             </div>
@@ -265,8 +237,8 @@ function TreemapContent(props: TreemapContentProps) {
 }
 
 function TreemapChart({ data }: { data: PieDataItem[] }) {
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { hidden, handleClick, handleDblClick, isHidden } =
+    useChartLegend<PieDataItem>(data, (item) => item.symbol);
 
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.symbol));
@@ -277,31 +249,6 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
   const treemapData = visibleData.map((d) => ({ ...d } as Record<string, unknown>));
   const [tooltip, setTooltip] = useState<{ name: string; percent: number; value: number } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-
-  const handleLegendClick = useCallback((symbol: string) => {
-    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
-    clickTimer.current = setTimeout(() => {
-      setHidden((prev) => {
-        const next = new Set(prev);
-        if (next.has(symbol)) { next.delete(symbol); } else {
-          const wouldRemain = data.filter((d) => !next.has(d.symbol) && d.symbol !== symbol);
-          if (wouldRemain.length > 0) next.add(symbol);
-        }
-        return next;
-      });
-    }, 250);
-  }, [data]);
-
-  const handleLegendDblClick = useCallback((symbol: string) => {
-    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
-    setHidden((prev) => {
-      const visible = data.filter((d) => !prev.has(d.symbol));
-      if (visible.length === 1 && visible[0].symbol === symbol) {
-        return new Set();
-      }
-      return new Set(data.filter((d) => d.symbol !== symbol).map((d) => d.symbol));
-    });
-  }, [data]);
 
   return (
     <>
@@ -353,25 +300,25 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
       {/* Legend with filtering */}
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
         {data.map((item) => {
-          const isHidden = hidden.has(item.symbol);
+          const itemIsHidden = isHidden(item.symbol);
           return (
             <div
               key={item.symbol}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",
-                opacity: isHidden ? 0.35 : 1,
+                opacity: itemIsHidden ? 0.35 : 1,
                 transition: "opacity 150ms ease",
                 cursor: "pointer",
-                textDecoration: isHidden ? "line-through" : "none",
+                textDecoration: itemIsHidden ? "line-through" : "none",
                 userSelect: "none",
               }}
-              onClick={() => handleLegendClick(item.symbol)}
-              onDoubleClick={() => handleLegendDblClick(item.symbol)}
+              onClick={() => handleClick(item.symbol)}
+              onDoubleClick={() => handleDblClick(item.symbol)}
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: isHidden ? "#ccc" : item.color }}
+                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
               />
               <span>{item.name}</span>
             </div>
@@ -383,8 +330,8 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
 }
 
 /* ── Main Component ── */
-export function StockPieChart({ holdings, title = "הרכב תיק", chartMode = "donut" }: Props) {
-  const { data, totalValue } = useChartData(holdings);
+export function StockPieChart({ holdings, labelColorMap, title = "הרכב תיק", chartMode = "donut" }: Props) {
+  const { data, totalValue } = useChartData(holdings, labelColorMap);
 
   if (data.length === 0) {
     return (

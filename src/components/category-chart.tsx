@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import {
   PieChart,
   Pie,
@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import type { CategoryBreakdown } from "@/lib/types";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
+import { useChartLegend } from "@/hooks/use-chart-legend";
 
 interface Props {
   categories: CategoryBreakdown[];
@@ -28,15 +29,68 @@ interface ChartItem {
   color: string;
 }
 
+function LegendItem({
+  name,
+  color,
+  itemIsHidden,
+  hoveredIndex,
+  visibleIdx,
+  onClick,
+  onDblClick,
+  onMouseEnter,
+  onMouseLeave,
+  noWrap,
+}: {
+  name: string;
+  color: string;
+  itemIsHidden: boolean;
+  hoveredIndex: number | undefined;
+  visibleIdx: number;
+  onClick: () => void;
+  onDblClick: () => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  noWrap?: boolean;
+}) {
+  return (
+    <div
+      className="d-flex align-items-center gap-1"
+      style={{
+        fontSize: "0.72rem",
+        opacity: itemIsHidden
+          ? 0.35
+          : hoveredIndex !== undefined && hoveredIndex !== visibleIdx
+            ? 0.5
+            : 1,
+        transition: "opacity 150ms ease",
+        cursor: "pointer",
+        textDecoration: itemIsHidden ? "line-through" : "none",
+        userSelect: "none",
+        ...(noWrap ? { whiteSpace: "nowrap" as const } : {}),
+      }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={onClick}
+      onDoubleClick={onDblClick}
+    >
+      <span
+        className="rounded-circle flex-shrink-0"
+        style={{
+          width: 8,
+          height: 8,
+          backgroundColor: itemIsHidden ? "#ccc" : color,
+        }}
+      />
+      <span>{name}</span>
+    </div>
+  );
+}
+
 export function CategoryChart({
   categories,
   colorMap,
   layout = "vertical",
 }: Props) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | undefined>(undefined);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const allData = useMemo(() => {
     const positive = categories.filter((c) => c.amount > 0);
     const total = positive.reduce((s, c) => s + c.amount, 0);
@@ -47,6 +101,9 @@ export function CategoryChart({
       color: colorMap[c.category] || DEFAULT_COLOR,
     }));
   }, [categories, colorMap]);
+
+  const { hidden, hoveredIndex, handleClick, handleDblClick, handleHover, isHidden } =
+    useChartLegend<ChartItem>(allData, (item) => item.name);
 
   const visibleData = useMemo(() => {
     const filtered = allData.filter((d) => !hidden.has(d.name));
@@ -69,51 +126,6 @@ export function CategoryChart({
   const negativeCategories = useMemo(
     () => categories.filter((c) => c.amount < 0),
     [categories],
-  );
-
-  const handleLegendClick = useCallback(
-    (name: string) => {
-      if (clickTimer.current) {
-        clearTimeout(clickTimer.current);
-        clickTimer.current = null;
-      }
-      clickTimer.current = setTimeout(() => {
-        setHidden((prev) => {
-          const next = new Set(prev);
-          if (next.has(name)) {
-            next.delete(name);
-          } else {
-            const wouldRemain = allData.filter(
-              (d) => !next.has(d.name) && d.name !== name,
-            );
-            if (wouldRemain.length > 0) next.add(name);
-          }
-          return next;
-        });
-        setHoveredIndex(undefined);
-      }, 250);
-    },
-    [allData],
-  );
-
-  const handleLegendDblClick = useCallback(
-    (name: string) => {
-      if (clickTimer.current) {
-        clearTimeout(clickTimer.current);
-        clickTimer.current = null;
-      }
-      setHidden((prev) => {
-        const visible = allData.filter((d) => !prev.has(d.name));
-        if (visible.length === 1 && visible[0].name === name) {
-          return new Set(); // restore all
-        }
-        return new Set(
-          allData.filter((d) => d.name !== name).map((d) => d.name),
-        );
-      });
-      setHoveredIndex(undefined);
-    },
-    [allData],
   );
 
   if (categories.length === 0) {
@@ -166,10 +178,8 @@ export function CategoryChart({
                 />
               );
             }}
-            onMouseEnter={(_: unknown, index: number) =>
-              setHoveredIndex(index)
-            }
-            onMouseLeave={() => setHoveredIndex(undefined)}
+            onMouseEnter={(_: unknown, index: number) => handleHover(index)}
+            onMouseLeave={() => handleHover(undefined)}
           >
             {visibleData.map((item, index) => (
               <Cell key={`cell-${index}`} fill={item.color} />
@@ -224,41 +234,22 @@ export function CategoryChart({
   const legendSection = (
     <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
       {allData.map((item) => {
-        const isHidden = hidden.has(item.name);
         const visibleIdx = visibleData.findIndex((d) => d.name === item.name);
         return (
-          <div
+          <LegendItem
             key={item.name}
-            className="d-flex align-items-center gap-1"
-            style={{
-              fontSize: "0.72rem",
-              opacity: isHidden
-                ? 0.35
-                : hoveredIndex !== undefined && hoveredIndex !== visibleIdx
-                  ? 0.5
-                  : 1,
-              transition: "opacity 150ms ease",
-              cursor: "pointer",
-              textDecoration: isHidden ? "line-through" : "none",
-              userSelect: "none",
-            }}
+            name={item.name}
+            color={item.color}
+            itemIsHidden={isHidden(item.name)}
+            hoveredIndex={hoveredIndex}
+            visibleIdx={visibleIdx}
+            onClick={() => handleClick(item.name)}
+            onDblClick={() => handleDblClick(item.name)}
             onMouseEnter={() => {
-              if (!isHidden) setHoveredIndex(visibleIdx);
+              if (!isHidden(item.name)) handleHover(visibleIdx);
             }}
-            onMouseLeave={() => setHoveredIndex(undefined)}
-            onClick={() => handleLegendClick(item.name)}
-            onDoubleClick={() => handleLegendDblClick(item.name)}
-          >
-            <span
-              className="rounded-circle flex-shrink-0"
-              style={{
-                width: 8,
-                height: 8,
-                backgroundColor: isHidden ? "#ccc" : item.color,
-              }}
-            />
-            <span>{item.name}</span>
-          </div>
+            onMouseLeave={() => handleHover(undefined)}
+          />
         );
       })}
       {negativeCategories.map((c) => (
@@ -288,42 +279,25 @@ export function CategoryChart({
       <div style={{ maxHeight: 260, overflowY: "auto" }}>
         <div className="d-flex flex-column gap-1">
           {allData.map((item) => {
-            const isHidden = hidden.has(item.name);
-            const visibleIdx = visibleData.findIndex((d) => d.name === item.name);
+            const visibleIdx = visibleData.findIndex(
+              (d) => d.name === item.name,
+            );
             return (
-              <div
+              <LegendItem
                 key={item.name}
-                className="d-flex align-items-center gap-1"
-                style={{
-                  fontSize: "0.72rem",
-                  opacity: isHidden
-                    ? 0.35
-                    : hoveredIndex !== undefined && hoveredIndex !== visibleIdx
-                      ? 0.5
-                      : 1,
-                  transition: "opacity 150ms ease",
-                  cursor: "pointer",
-                  textDecoration: isHidden ? "line-through" : "none",
-                  userSelect: "none",
-                  whiteSpace: "nowrap",
-                }}
+                name={item.name}
+                color={item.color}
+                itemIsHidden={isHidden(item.name)}
+                hoveredIndex={hoveredIndex}
+                visibleIdx={visibleIdx}
+                onClick={() => handleClick(item.name)}
+                onDblClick={() => handleDblClick(item.name)}
                 onMouseEnter={() => {
-                  if (!isHidden) setHoveredIndex(visibleIdx);
+                  if (!isHidden(item.name)) handleHover(visibleIdx);
                 }}
-                onMouseLeave={() => setHoveredIndex(undefined)}
-                onClick={() => handleLegendClick(item.name)}
-                onDoubleClick={() => handleLegendDblClick(item.name)}
-              >
-                <span
-                  className="rounded-circle flex-shrink-0"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    backgroundColor: isHidden ? "#ccc" : item.color,
-                  }}
-                />
-                <span>{item.name}</span>
-              </div>
+                onMouseLeave={() => handleHover(undefined)}
+                noWrap
+              />
             );
           })}
           {negativeCategories.map((c) => (

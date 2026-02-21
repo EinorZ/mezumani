@@ -30,6 +30,7 @@ import {
   addGoal,
   updateGoal,
   removeGoal,
+  saveLabelAllocationsAction,
 } from "@/lib/actions";
 import {
   CARD_OWNER_COLORS,
@@ -46,6 +47,7 @@ import { IncomeSourceList } from "@/components/income-source-list";
 import { StockDefinitionList } from "@/components/stock-definition-list";
 import { BrokerList } from "@/components/broker-list";
 import { StockGoalList } from "@/components/stock-goal-list";
+import { LabelColorList } from "@/components/label-color-list";
 
 const cardGroups = [
   { key: "shared" as const, label: "משותף", color: CARD_OWNER_COLORS.shared },
@@ -455,6 +457,28 @@ export default async function SettingsPage() {
             onRemove={async (label) => {
               "use server";
               await removeGoal(label);
+            }}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="צבעי קטגוריות"
+          icon="&#127912;"
+          description="צבע קבוע לכל קטגוריה בגרפים"
+          accentColor="#fd7e14"
+        >
+          <LabelColorList
+            labels={[
+              ...new Set(
+                stockConfig.stocks
+                  .filter((s) => s.label)
+                  .map((s) => s.label),
+              ),
+            ]}
+            allocations={stockConfig.labelAllocations}
+            onSave={async (allocations) => {
+              "use server";
+              await saveLabelAllocationsAction(allocations);
             }}
           />
         </CollapsibleSection>

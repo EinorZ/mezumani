@@ -7,10 +7,9 @@ import { ALL_TERMS, TERM_LABELS, TERM_COLORS } from "@/lib/constants";
 
 interface Props {
   byTerm: StockTermGroup[];
-  usdToIls: number;
 }
 
-export function StockTermCards({ byTerm, usdToIls }: Props) {
+export function StockTermCards({ byTerm }: Props) {
   const [activeTab, setActiveTab] = useState<InvestmentTerm>("ארוך");
 
   // Filter to terms that have holdings or goals
@@ -31,7 +30,7 @@ export function StockTermCards({ byTerm, usdToIls }: Props) {
             </button>
           ))}
         </div>
-        {activeTerm && <TermCard group={activeTerm} usdToIls={usdToIls} />}
+        {activeTerm && <TermCard group={activeTerm} />}
       </div>
 
       {/* Desktop: 3 columns */}
@@ -41,7 +40,7 @@ export function StockTermCards({ byTerm, usdToIls }: Props) {
           return (
             <div key={term} className="col-md-4">
               {group ? (
-                <TermCard group={group} usdToIls={usdToIls} />
+                <TermCard group={group} />
               ) : (
                 <div
                   className="card rounded-3 border h-100 p-3"
@@ -61,7 +60,7 @@ export function StockTermCards({ byTerm, usdToIls }: Props) {
   );
 }
 
-function TermCard({ group }: { group: StockTermGroup; usdToIls: number }) {
+function TermCard({ group }: { group: StockTermGroup }) {
   const isPositive = group.profitLoss >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
 

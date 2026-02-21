@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { IncomeSource } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -19,6 +19,7 @@ export function IncomeTable({
   onUpdateIncome,
 }: Props) {
   const [entries, setEntries] = useState<IncomeSource[]>(income);
+  useEffect(() => { setEntries(income); }, [income]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);

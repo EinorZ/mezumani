@@ -179,6 +179,30 @@ export function parseNumber(value: string | undefined | null): number {
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * Parse a date string in DD/MM/YY or DD/MM/YYYY format.
+ */
+export function parseDDMMYY(str: string): Date | null {
+  if (!str) return null;
+  const parts = str.split("/");
+  if (parts.length < 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  let year = parseInt(parts[2], 10);
+  if (year < 100) year += 2000;
+  return new Date(year, month, day);
+}
+
+/** Returns the appropriate colour for a P&L value. */
+export function pnlColor(value: number): string {
+  return value >= 0 ? "#198754" : "#dc3545";
+}
+
+/** Returns "+" for non-negative values, "" for negative. */
+export function pnlPrefix(value: number): string {
+  return value >= 0 ? "+" : "";
+}
+
 import type { AppConfig, CategoryItem } from "./types";
 
 /**

@@ -190,6 +190,7 @@ export interface LabelAllocation {
   label: string;
   targetPercent: number;
   selectedStock?: string;
+  color?: string;
 }
 
 export interface StockConfig {
@@ -255,17 +256,19 @@ export interface RsuGrant {
   unvestedShares: number;
 }
 
+export interface NvidiaPortfolioSummary {
+  unvestedValueIls: number;
+  vestedValueIls: number;
+  holdableValueIls: number;
+  totalValueIls: number;
+  estimatedTaxIfSoldToday: number;
+}
+
 export interface NvidiaCompensationData {
   grants: RsuGrant[];
   currentNvdaPriceUsd: number;
   usdToIls: number;
-  summary: {
-    unvestedValueIls: number;
-    vestedValueIls: number;
-    holdableValueIls: number;
-    totalValueIls: number;
-    estimatedTaxIfSoldToday: number;
-  };
+  summary: NvidiaPortfolioSummary;
   grossSoFar: number;
   monthlySalary: number;
   esppMonthlyContribution: number;
@@ -289,22 +292,26 @@ export interface PortfolioReturns {
   annual: { year: number; returnPercent: number | null }[];
 }
 
+export interface StockPortfolioTotals {
+  totalValueILS: number;
+  totalInvestedILS: number;
+  totalFees: number;
+  totalProfitLoss: number;
+  totalProfitLossPercent: number;
+  estimatedCapitalGainsTax: number;
+  ytdChangePercent: number | null;
+}
+
+export interface CurrencyExposure {
+  usd: { amountILS: number; percent: number };
+  ils: { amountILS: number; percent: number };
+}
+
 export interface StockDashboardData {
   holdings: StockHolding[];
   byTerm: StockTermGroup[];
-  totals: {
-    totalValueILS: number;
-    totalInvestedILS: number;
-    totalFees: number;
-    totalProfitLoss: number;
-    totalProfitLossPercent: number;
-    estimatedCapitalGainsTax: number;
-    ytdChangePercent: number | null;
-  };
-  currencyExposure: {
-    usd: { amountILS: number; percent: number };
-    ils: { amountILS: number; percent: number };
-  };
+  totals: StockPortfolioTotals;
+  currencyExposure: CurrencyExposure;
   usdToIls: number;
   lastUpdated: string;
 }

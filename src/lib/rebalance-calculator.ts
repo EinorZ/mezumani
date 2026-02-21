@@ -1,4 +1,71 @@
-import type { LabelAllocation } from "./types";
+import type { LabelAllocation, StockDefinition } from "./types";
+
+export interface RebalanceTableRow {
+  label: string;
+  currentValue: number;
+  currentPercent: number;
+  targetPercent: number;
+  stockPrice: number;
+  shareCount: number;
+  actualCost: number;
+  projectedValue: number;
+  newPercent: number;
+  delta: number;
+  totalActualCost: number;
+}
+
+/**
+ * Pure two-pass derivation of the rebalance table rows from recommendations + overrides.
+ */
+export function computeRebalanceTableRows(
+  recommendations: RebalanceRecommendation[],
+  effectiveAmounts: Record<string, number>,
+  selectedStocks: Record<string, string>,
+  priceBySymbol: Record<string, number>,
+  manualShareCounts: Record<string, number>,
+  currentValueByLabel: Record<string, number>,
+  stocksByLabel: Record<string, StockDefinition[]>,
+): RebalanceTableRow[] {
+  const currentTotal = Object.values(currentValueByLabel).reduce(
+    (s, v) => s + v,
+    0,
+  );
+  const rows = recommendations.map((rec) => {
+    const allocatedAmount = effectiveAmounts[rec.label] ?? rec.recommendedAmount;
+    const selectedSymbol = selectedStocks[rec.label];
+    let stockPrice = selectedSymbol ? (priceBySymbol[selectedSymbol] ?? 0) : 0;
+    if (stockPrice === 0 && selectedSymbol) {
+      const labelStocks = stocksByLabel[rec.label] ?? [];
+      for (const s of labelStocks) {
+        if (priceBySymbol[s.symbol] > 0) {
+          stockPrice = priceBySymbol[s.symbol];
+          break;
+        }
+      }
+    }
+    const autoShareCount = stockPrice > 0 ? Math.floor(allocatedAmount / stockPrice) : 0;
+    const shareCount =
+      rec.label in manualShareCounts ? manualShareCounts[rec.label] : autoShareCount;
+    const actualCost = shareCount * stockPrice;
+    return {
+      label: rec.label,
+      currentValue: rec.currentValue,
+      currentPercent: rec.currentPercent,
+      targetPercent: rec.targetPercent,
+      stockPrice,
+      shareCount,
+      actualCost,
+    };
+  });
+  const totalActualCost = rows.reduce((s, r) => s + r.actualCost, 0);
+  const newTotal = currentTotal + totalActualCost;
+  return rows.map((row) => {
+    const projectedValue = row.currentValue + row.actualCost;
+    const newPercent = newTotal > 0 ? (projectedValue / newTotal) * 100 : 0;
+    const delta = newPercent - row.targetPercent;
+    return { ...row, projectedValue, newPercent, delta, totalActualCost };
+  });
+}
 
 export interface RebalanceInput {
   currentValueByLabel: Record<string, number>;
