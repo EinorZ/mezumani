@@ -18,6 +18,9 @@ const rubik = Rubik({
 export const metadata: Metadata = {
   title: "mezumani",
   description: "ניהול תקציב אישי",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default async function RootLayout({
