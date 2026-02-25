@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import Image from "next/image";
 import Link from "next/link";
@@ -89,7 +89,15 @@ export function Sidebar({ yearGroups }: Props) {
   const currentYearSuffix = new Date().getFullYear() % 100;
 
   const [pinned, setPinned] = useLocalStorage("sidebar-pinned", false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [showVacationForm, setShowVacationForm] = useState<number | null>(null);
+
+  // Close sidebar on navigation
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
 
   // Drag-to-reorder for vacation lists (keyed by year)
   const [vacationOrders, setVacationOrders] = useState<Record<number, SheetInfo[]>>(() =>
@@ -171,14 +179,37 @@ export function Sidebar({ yearGroups }: Props) {
   }
 
   return (
-    <aside className={`sidebar${pinned ? " pinned" : ""}`}>
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        className="mobile-hamburger-btn d-md-none"
+        onClick={() => setMobileOpen(true)}
+        aria-label="תפריט"
+      >
+        ☰
+      </button>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div className="sidebar-backdrop d-md-none" onClick={closeMobile} />
+      )}
+
+    <aside className={`sidebar${pinned ? " pinned" : ""}${mobileOpen ? " mobile-open" : ""}`}>
       <div className="sidebar-header d-flex flex-column align-items-center">
         <span
-          className="sidebar-hamburger"
+          className="sidebar-hamburger d-none d-md-block"
           style={{ fontSize: "1.5rem", cursor: "pointer" }}
         >
           ☰
         </span>
+        {/* Mobile close button */}
+        <button
+          className="d-md-none btn btn-sm btn-link text-secondary align-self-start p-0"
+          onClick={closeMobile}
+          style={{ fontSize: "1.25rem" }}
+        >
+          ✕
+        </button>
         <Image
           src="/mezumani_logo.png"
           alt="Mezumani"
@@ -427,5 +458,6 @@ export function Sidebar({ yearGroups }: Props) {
         </Link>
       </div>
     </aside>
+    </>
   );
 }

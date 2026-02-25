@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, evalMathExpr } from "@/lib/utils";
 import { HEBREW_MONTHS } from "@/lib/constants";
 import { SearchableSelect } from "@/components/searchable-select";
 import { MultiSearchableSelect } from "@/components/multi-searchable-select";
@@ -144,6 +144,7 @@ export function TransactionTable({
   const [addForm, setAddForm] = useState(defaultAddForm);
   const [editForm, setEditForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
   // Ref for the edit row element to detect outside clicks
   const editRowRef = useRef<HTMLDivElement>(null);
@@ -228,7 +229,7 @@ export function TransactionTable({
   function handleAdd() {
     if (!addForm.expense.trim() && !addForm.amount.trim()) return;
     const date = buildDate(addForm.day, sheetMonth);
-    const amount = parseFloat(addForm.amount) || 0;
+    const amount = evalMathExpr(addForm.amount);
     setAddForm(defaultAddForm);
     optimistic.handleAdd({
       date,
@@ -243,7 +244,7 @@ export function TransactionTable({
 
   function handleEdit(row: number) {
     const date = buildDate(editForm.day, sheetMonth);
-    const amount = parseFloat(editForm.amount) || 0;
+    const amount = evalMathExpr(editForm.amount);
     setEditingRow(null);
     optimistic.handleEdit(row, {
       date,
@@ -470,11 +471,14 @@ export function TransactionTable({
             ~
           </button>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             className="form-control form-control-sm"
             placeholder="סכום"
             style={{
               ...borderlessInput,
+              direction: "ltr",
+              textAlign: "right",
               ...(form.tentative ? { color: "#c2770e", fontStyle: "italic" } : {}),
             }}
             value={form.amount}
@@ -538,49 +542,58 @@ export function TransactionTable({
       )}
 
       {/* Search & Filter */}
-      <div className="d-flex gap-2 align-items-center mb-2 flex-wrap">
+      <div className="d-flex gap-2 align-items-center mb-2 flex-wrap tx-filter-bar">
         <input
-          className="form-control form-control-sm"
+          className="form-control form-control-sm tx-filter-search"
           style={{ maxWidth: 200 }}
           placeholder="חיפוש..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
-        <div style={{ minWidth: 140, maxWidth: 220 }}>
-          <MultiSearchableSelect
-            options={activeCategories}
-            colorMap={colorMap}
-            selected={filterCategories}
-            onChange={setFilterCategories}
-            placeholder="קטגוריה"
-          />
+        <button
+          className="btn btn-sm btn-outline-secondary d-md-none"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {showFilters ? "הסתר סינון" : "סינון"}
+          {hasActiveFilters && " ●"}
+        </button>
+        <div className={`d-flex gap-2 flex-wrap tx-filter-dropdowns${showFilters ? "" : " d-none d-md-flex"}`}>
+          <div style={{ minWidth: 140, maxWidth: 220 }}>
+            <MultiSearchableSelect
+              options={activeCategories}
+              colorMap={colorMap}
+              selected={filterCategories}
+              onChange={setFilterCategories}
+              placeholder="קטגוריה"
+            />
+          </div>
+          <div style={{ minWidth: 140, maxWidth: 220 }}>
+            <MultiSearchableSelect
+              options={activeCategories}
+              colorMap={colorMap}
+              selected={excludeCategories}
+              onChange={setExcludeCategories}
+              placeholder="הסתר קטגוריה"
+            />
+          </div>
+          <div style={{ minWidth: 140, maxWidth: 220 }}>
+            <MultiSearchableSelect
+              options={activeCards}
+              colorMap={cardColorMap ?? {}}
+              selected={filterCards}
+              onChange={setFilterCards}
+              placeholder="כרטיס"
+            />
+          </div>
+          {hasActiveFilters && (
+            <button
+              className="btn btn-sm btn-outline-secondary"
+              onClick={clearFilters}
+            >
+              נקה
+            </button>
+          )}
         </div>
-        <div style={{ minWidth: 140, maxWidth: 220 }}>
-          <MultiSearchableSelect
-            options={activeCategories}
-            colorMap={colorMap}
-            selected={excludeCategories}
-            onChange={setExcludeCategories}
-            placeholder="הסתר קטגוריה"
-          />
-        </div>
-        <div style={{ minWidth: 140, maxWidth: 220 }}>
-          <MultiSearchableSelect
-            options={activeCards}
-            colorMap={cardColorMap ?? {}}
-            selected={filterCards}
-            onChange={setFilterCards}
-            placeholder="כרטיס"
-          />
-        </div>
-        {hasActiveFilters && (
-          <button
-            className="btn btn-sm btn-outline-secondary"
-            onClick={clearFilters}
-          >
-            נקה
-          </button>
-        )}
       </div>
 
       {/* Header row */}
@@ -666,54 +679,94 @@ export function TransactionTable({
             editRowRef,
           )
         ) : (
-          <div
-            key={t.row}
-            className={`tx-row${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
-            onDoubleClick={() => startEdit(t)}
-            style={t.row < 0 ? { opacity: 0.5 } : undefined}
-          >
-            {t.row >= 0 && (
-              <div className="tx-check-overlay">
-                <input
-                  type="checkbox"
-                  className="form-check-input m-0"
-                  checked={selectedRows.has(t.row)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleRow(t.row, e.shiftKey);
-                  }}
-                  readOnly
-                />
+          <div key={t.row}>
+            {/* Desktop row */}
+            <div
+              className={`tx-row${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
+              onDoubleClick={() => startEdit(t)}
+              style={t.row < 0 ? { opacity: 0.5 } : undefined}
+            >
+              {t.row >= 0 && (
+                <div className="tx-check-overlay">
+                  <input
+                    type="checkbox"
+                    className="form-check-input m-0"
+                    checked={selectedRows.has(t.row)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleRow(t.row, e.shiftKey);
+                    }}
+                    readOnly
+                  />
+                </div>
+              )}
+              <div className="text-secondary small" style={{ flex: COL.date }}>
+                {formatDateDisplay(t.date)}
               </div>
-            )}
-            <div className="text-secondary small" style={{ flex: COL.date }}>
-              {formatDateDisplay(t.date)}
+              <div style={{ flex: COL.expense }}>{t.expense}</div>
+              <div style={{ flex: COL.amount }}>
+                <span className={t.tentative ? "tx-amount-tentative" : undefined}>
+                  {t.amount !== 0 ? formatCurrency(t.amount) : ""}
+                </span>
+              </div>
+              <div style={{ flex: COL.category }}>
+                <span
+                  className="badge rounded-pill"
+                  style={{
+                    backgroundColor: colorMap[t.category] || "#6c757d",
+                  }}
+                >
+                  {t.category}
+                </span>
+              </div>
+              <div style={{ flex: COL.card }}>
+                <span
+                  className="badge rounded-pill"
+                  style={{
+                    backgroundColor: cardColorMap?.[t.card] || "#6c757d",
+                  }}
+                >
+                  {t.card}
+                </span>
+              </div>
             </div>
-            <div style={{ flex: COL.expense }}>{t.expense}</div>
-            <div style={{ flex: COL.amount }}>
-              <span className={t.tentative ? "tx-amount-tentative" : undefined}>
-                {t.amount !== 0 ? formatCurrency(t.amount) : ""}
-              </span>
-            </div>
-            <div style={{ flex: COL.category }}>
-              <span
-                className="badge rounded-pill"
-                style={{
-                  backgroundColor: colorMap[t.category] || "#6c757d",
-                }}
-              >
-                {t.category}
-              </span>
-            </div>
-            <div style={{ flex: COL.card }}>
-              <span
-                className="badge rounded-pill"
-                style={{
-                  backgroundColor: cardColorMap?.[t.card] || "#6c757d",
-                }}
-              >
-                {t.card}
-              </span>
+
+            {/* Mobile card */}
+            <div
+              className={`tx-mobile-card d-md-none${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}`}
+              onClick={() => {
+                if (t.row >= 0) toggleRow(t.row, false);
+              }}
+              onDoubleClick={() => startEdit(t)}
+              style={t.row < 0 ? { opacity: 0.5 } : undefined}
+            >
+              <div className="d-flex justify-content-between align-items-start">
+                <span className="fw-medium">{t.expense}</span>
+                <span className={t.tentative ? "tx-amount-tentative" : "fw-bold"}>
+                  {t.amount !== 0 ? formatCurrency(t.amount) : ""}
+                </span>
+              </div>
+              <div className="d-flex justify-content-between align-items-center mt-1">
+                <span className="text-secondary small">{formatDateDisplay(t.date)}</span>
+                <div className="d-flex gap-1">
+                  {t.category && (
+                    <span
+                      className="badge rounded-pill"
+                      style={{ backgroundColor: colorMap[t.category] || "#6c757d", fontSize: "0.7rem" }}
+                    >
+                      {t.category}
+                    </span>
+                  )}
+                  {t.card && (
+                    <span
+                      className="badge rounded-pill"
+                      style={{ backgroundColor: cardColorMap?.[t.card] || "#6c757d", fontSize: "0.7rem" }}
+                    >
+                      {t.card}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ),

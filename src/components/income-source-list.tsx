@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { IncomeSource } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, evalMathExpr } from "@/lib/utils";
 import { EditableRow, EditableList } from "@/components/editable-list";
 
 interface Props {
@@ -43,7 +43,7 @@ function IncomeSourceRow({
       onSave={async () => {
         const trimmed = editName.trim();
         if (!trimmed) return;
-        const newAmount = parseFloat(editAmount) || 0;
+        const newAmount = evalMathExpr(editAmount);
         if (trimmed === item.name && newAmount === item.amount) return;
         await onUpdate(item.name, trimmed, newAmount);
       }}
@@ -74,7 +74,8 @@ function IncomeSourceRow({
           <div style={{ minWidth: "100px" }}>
             <input
               className="form-control form-control-sm"
-              type="number"
+              type="text"
+              inputMode="decimal"
               placeholder="0"
               value={editAmount}
               onChange={(e) => setEditAmount(e.target.value)}
@@ -110,7 +111,7 @@ export function IncomeSourceList({ items, onAdd, onUpdate, onRemove }: Props) {
           if (!trimmedName) return;
           setSubmitting(true);
           try {
-            await onAdd(trimmedName, parseFloat(amount) || 0);
+            await onAdd(trimmedName, evalMathExpr(amount));
             setName("");
             setAmount("");
           } finally {
@@ -133,7 +134,8 @@ export function IncomeSourceList({ items, onAdd, onUpdate, onRemove }: Props) {
               <label className="form-label small mb-1">סכום</label>
               <input
                 className="form-control form-control-sm"
-                type="number"
+                type="text"
+              inputMode="decimal"
                 placeholder="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}

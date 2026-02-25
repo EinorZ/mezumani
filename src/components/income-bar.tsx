@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { IncomeSource } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, evalMathExpr } from "@/lib/utils";
 
 interface Props {
   income: IncomeSource[];
@@ -28,7 +28,7 @@ export function IncomeTable({
   const [newAmount, setNewAmount] = useState("");
 
   async function saveEdit(idx: number) {
-    const newAmount = parseFloat(editValue) || 0;
+    const newAmount = evalMathExpr(editValue);
     if (newAmount === entries[idx].amount) {
       setEditingIdx(null);
       return;
@@ -49,7 +49,7 @@ export function IncomeTable({
   async function handleAdd() {
     const trimmed = newName.trim();
     if (!trimmed) return;
-    const amount = parseFloat(newAmount) || 0;
+    const amount = evalMathExpr(newAmount);
     const updated = [...entries, { name: trimmed, amount }];
     setSaving(true);
     try {
@@ -75,7 +75,8 @@ export function IncomeTable({
                 {editingIdx === idx ? (
                   <input
                     className="form-control form-control-sm py-0"
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     style={{ width: "80px", fontSize: "0.8rem" }}
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
@@ -121,7 +122,8 @@ export function IncomeTable({
           />
           <input
             className="form-control form-control-sm"
-            type="number"
+            type="text"
+            inputMode="decimal"
             placeholder="סכום"
             style={{ width: "80px", fontSize: "0.8rem" }}
             value={newAmount}

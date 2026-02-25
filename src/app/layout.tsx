@@ -16,7 +16,7 @@ const rubik = Rubik({
 });
 
 export const metadata: Metadata = {
-  title: "mezumani",
+  title: "Mezumani",
   description: "ניהול תקציב אישי",
   icons: {
     icon: "/icon.png",

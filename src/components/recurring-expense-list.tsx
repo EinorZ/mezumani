@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { RecurringExpense } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, evalMathExpr } from "@/lib/utils";
 import { SearchableSelect } from "@/components/searchable-select";
 import {
   DndContext,
@@ -122,7 +122,7 @@ function SortableExpenseRow({
   async function handleSave() {
     const trimmed = editName.trim();
     if (!trimmed) return;
-    const newAmount = parseFloat(editAmount) || 0;
+    const newAmount = evalMathExpr(editAmount);
     if (
       trimmed === item.name &&
       newAmount === item.amount &&
@@ -191,7 +191,8 @@ function SortableExpenseRow({
           </button>
           <input
             className="form-control form-control-sm"
-            type="number"
+            type="text"
+            inputMode="decimal"
             placeholder="0"
             style={editTentative ? { color: "#c2770e", fontStyle: "italic" } : undefined}
             value={editAmount}
@@ -359,7 +360,7 @@ export function RecurringExpenseList({
     try {
       await onAdd(
         trimmedName,
-        parseFloat(amount) || 0,
+        evalMathExpr(amount),
         category,
         card,
         keywords,
@@ -433,7 +434,8 @@ export function RecurringExpenseList({
             </button>
             <input
               className="form-control form-control-sm"
-              type="number"
+              type="text"
+              inputMode="decimal"
               placeholder="0"
               style={tentative ? { color: "#c2770e", fontStyle: "italic" } : undefined}
               value={amount}

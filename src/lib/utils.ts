@@ -179,6 +179,39 @@ export function parseNumber(value: string | undefined | null): number {
   return isNaN(num) ? 0 : num;
 }
 
+/** Evaluate a simple math expression (supports +, -, *, /).
+ *  Returns the result or 0 if invalid. Safe — no eval(). */
+export function evalMathExpr(input: string): number {
+  const s = input.replace(/\s/g, "");
+  if (!s) return 0;
+  // Tokenize into numbers and operators
+  const tokens = s.match(/(\d+\.?\d*|[+\-*/])/g);
+  if (!tokens) return 0;
+  // If it's a single number, fast path
+  if (tokens.length === 1) return parseFloat(tokens[0]) || 0;
+  // Build array of numbers applying * and / first (simple two-pass)
+  const nums: number[] = [parseFloat(tokens[0]) || 0];
+  const ops: string[] = [];
+  for (let i = 1; i < tokens.length; i += 2) {
+    const op = tokens[i];
+    const num = parseFloat(tokens[i + 1]) || 0;
+    if (op === "*") {
+      nums[nums.length - 1] *= num;
+    } else if (op === "/") {
+      nums[nums.length - 1] = num !== 0 ? nums[nums.length - 1] / num : 0;
+    } else {
+      ops.push(op);
+      nums.push(num);
+    }
+  }
+  // Second pass: + and -
+  let result = nums[0];
+  for (let i = 0; i < ops.length; i++) {
+    result = ops[i] === "+" ? result + nums[i + 1] : result - nums[i + 1];
+  }
+  return isNaN(result) ? 0 : result;
+}
+
 /**
  * Parse a date string in DD/MM/YY or DD/MM/YYYY format.
  */
