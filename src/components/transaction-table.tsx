@@ -543,20 +543,22 @@ export function TransactionTable({
 
       {/* Search & Filter */}
       <div className="d-flex gap-2 align-items-center mb-2 flex-wrap tx-filter-bar">
-        <input
-          className="form-control form-control-sm tx-filter-search"
-          style={{ maxWidth: 200 }}
-          placeholder="חיפוש..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <button
-          className="btn btn-sm btn-outline-secondary d-md-none"
-          onClick={() => setShowFilters((v) => !v)}
-        >
-          {showFilters ? "הסתר סינון" : "סינון"}
-          {hasActiveFilters && " ●"}
-        </button>
+        <div className="d-flex gap-2 flex-grow-1 flex-md-grow-0">
+          <input
+            className="form-control form-control-sm tx-filter-search flex-grow-1"
+            style={{ maxWidth: 200 }}
+            placeholder="חיפוש..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <button
+            className="btn btn-sm btn-outline-secondary d-md-none flex-shrink-0"
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            {showFilters ? "הסתר" : "סינון"}
+            {hasActiveFilters && " ●"}
+          </button>
+        </div>
         <div className={`d-flex gap-2 flex-wrap tx-filter-dropdowns${showFilters ? "" : " d-none d-md-flex"}`}>
           <div style={{ minWidth: 140, maxWidth: 220 }}>
             <MultiSearchableSelect
@@ -596,9 +598,9 @@ export function TransactionTable({
         </div>
       </div>
 
-      {/* Header row */}
+      {/* Header row (desktop only) */}
       <div
-        className={`tx-header${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
+        className={`tx-header d-none d-md-flex${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
       >
         <div className="tx-check-overlay tx-check-header">
           <input
@@ -682,7 +684,7 @@ export function TransactionTable({
           <div key={t.row}>
             {/* Desktop row */}
             <div
-              className={`tx-row${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
+              className={`tx-row d-none d-md-flex${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
               onDoubleClick={() => startEdit(t)}
               style={t.row < 0 ? { opacity: 0.5 } : undefined}
             >
@@ -779,7 +781,15 @@ export function TransactionTable({
       {/* Bulk edit bar */}
       {selectedRows.size > 0 && (
         <div className="tx-bulk-bar">
-          <span className="fw-bold small">{selectedRows.size} נבחרו</span>
+          <div className="d-flex align-items-center gap-2 w-100 justify-content-between d-md-contents">
+            <span className="fw-bold small">{selectedRows.size} נבחרו</span>
+            <button
+              className="btn btn-sm btn-outline-dark"
+              onClick={clearSelection}
+            >
+              ✕
+            </button>
+          </div>
           <div style={{ minWidth: 160 }}>
             <SearchableSelect
               options={categories}
@@ -819,12 +829,6 @@ export function TransactionTable({
           </button>
           <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
             מחק
-          </button>
-          <button
-            className="btn btn-sm btn-outline-secondary"
-            onClick={clearSelection}
-          >
-            ביטול
           </button>
         </div>
       )}

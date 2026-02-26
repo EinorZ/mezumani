@@ -197,16 +197,16 @@ export function Sidebar({ yearGroups }: Props) {
     <aside className={`sidebar${pinned ? " pinned" : ""}${mobileOpen ? " mobile-open" : ""}`}>
       <div className="sidebar-header d-flex flex-column align-items-center">
         <span
-          className="sidebar-hamburger d-none d-md-block"
+          className="sidebar-hamburger"
           style={{ fontSize: "1.5rem", cursor: "pointer" }}
         >
           ☰
         </span>
         {/* Mobile close button */}
         <button
-          className="d-md-none btn btn-sm btn-link text-secondary align-self-start p-0"
+          className="d-md-none sidebar-expanded-only btn btn-link text-secondary p-0"
           onClick={closeMobile}
-          style={{ fontSize: "1.25rem" }}
+          style={{ fontSize: "1.5rem", position: "absolute", left: "0.75rem", top: "0.75rem" }}
         >
           ✕
         </button>
