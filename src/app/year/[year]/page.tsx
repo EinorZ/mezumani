@@ -28,6 +28,7 @@ export default async function YearPage({ params }: YearPageProps) {
       categories={categories}
       vacationCategories={vacationCategories}
       yearSuffix={yearSuffix}
+      annualSavingsGoal={config.annualSavingsGoal}
     />
   );
 }

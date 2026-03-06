@@ -8,7 +8,11 @@ import {
 import { buildYearGroups } from "@/lib/utils";
 import { Sidebar } from "@/components/sidebar";
 import { NoNumberScroll } from "@/components/no-number-scroll";
+import { ThemeProvider } from "@/components/theme-provider";
+import { GlobalSearch } from "@/components/global-search";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 const rubik = Rubik({
   variable: "--font-rubik",
@@ -42,13 +46,23 @@ export default async function RootLayout({
   const yearGroups = buildYearGroups(sheets);
 
   return (
-    <html lang="he" dir="rtl">
+    <html lang="he" dir="rtl" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("theme");if(t)t=JSON.parse(t);if(t==="dark")document.documentElement.setAttribute("data-bs-theme","dark")}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className={rubik.variable}>
-        <NoNumberScroll />
-        <div className="app-layout">
-          <Sidebar yearGroups={yearGroups} />
-          <main className="main-content">{children}</main>
-        </div>
+        <ThemeProvider>
+          <NoNumberScroll />
+          <GlobalSearch />
+          <div className="app-layout">
+            <Sidebar yearGroups={yearGroups} />
+            <main className="main-content">{children}</main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );

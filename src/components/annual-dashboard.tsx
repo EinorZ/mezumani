@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { HEBREW_MONTHS } from "@/lib/constants";
-import { formatCurrency, getSummaryCardIcon } from "@/lib/utils";
+import { formatCurrency, formatCurrencyCompact, getSummaryCardIcon } from "@/lib/utils";
 import type { AnnualData } from "@/lib/types";
 import { MultiSearchableSelect } from "@/components/multi-searchable-select";
+import { Target } from "lucide-react";
 
 const MonthlyBarChart = dynamic(
   () => import("@/components/monthly-bar-chart").then((m) => m.MonthlyBarChart),
@@ -15,6 +16,10 @@ const CategoryChart = dynamic(
   () => import("@/components/category-chart").then((m) => m.CategoryChart),
   { ssr: false },
 );
+const CategorySparkline = dynamic(
+  () => import("@/components/category-sparkline").then((m) => m.CategorySparkline),
+  { ssr: false },
+);
 
 interface Props {
   data: AnnualData;
@@ -22,6 +27,7 @@ interface Props {
   categories: string[];
   vacationCategories: string[];
   yearSuffix: number;
+  annualSavingsGoal: number;
 }
 
 export function AnnualDashboard({
@@ -30,6 +36,7 @@ export function AnnualDashboard({
   categories,
   vacationCategories,
   yearSuffix,
+  annualSavingsGoal,
 }: Props) {
   const [excludeCategories, setExcludeCategories] = useState<Set<string>>(
     new Set(),
@@ -134,7 +141,10 @@ export function AnnualDashboard({
       activeMonths > 0 ? data.totalIncome / activeMonths : 0;
     const avgMonthlySavings =
       activeMonths > 0 ? data.totalSavings / activeMonths : 0;
-    const allCards = [
+    const yearlyPct = annualSavingsGoal > 0 ? Math.min(100, Math.max(0, (data.totalSavings / annualSavingsGoal) * 100)) : 0;
+
+    type CardDef = { label: string; amount: number; gradient: string; goal?: { target: number; pct: number } };
+    const row1: CardDef[] = [
       {
         label: 'סה"כ הוצאות שנתי',
         amount: filteredData.totals.total ?? 0,
@@ -150,6 +160,17 @@ export function AnnualDashboard({
         amount: data.totalSavings,
         gradient: "card-purple-gradient",
       },
+    ];
+    if (annualSavingsGoal > 0) {
+      row1.push({
+        label: "יעד שנתי",
+        amount: data.totalSavings,
+        gradient: "card-blue-gradient",
+        goal: { target: annualSavingsGoal, pct: yearlyPct },
+      });
+    }
+
+    const row2: CardDef[] = [
       {
         label: "ממוצע הוצאות חודשי",
         amount: filteredData.totals.average ?? 0,
@@ -166,8 +187,9 @@ export function AnnualDashboard({
         gradient: "card-purple-light-gradient",
       },
     ];
-    return [allCards.slice(0, 3), allCards.slice(3, 6), allCards.slice(6)];
-  }, [filteredData, data.totalIncome, data.totalSavings]);
+
+    return [row1, row2];
+  }, [filteredData, data.totalIncome, data.totalSavings, annualSavingsGoal]);
 
   return (
     <div className="container-fluid px-4 py-3">
@@ -175,23 +197,31 @@ export function AnnualDashboard({
         <h1 className="h4 fw-bold mb-0">סיכום שנתי 20{yearSuffix}</h1>
       </div>
 
-      {/* Category exclude filter */}
-      <div className="mb-4" style={{ maxWidth: 400 }}>
-        <label className="form-label small fw-medium mb-1">סנן קטגוריות</label>
-        <MultiSearchableSelect
-          options={categories}
-          colorMap={colorMap}
-          selected={excludeCategories}
-          onChange={setExcludeCategories}
-          placeholder="הסתר קטגוריות..."
-        />
-      </div>
-
-      {/* Summary cards – 2 rows of 3 */}
+      {/* Summary cards */}
       <>
         {summaryCardRows.map((rowCards, ri) => (
           <div key={ri} className="row g-3 mb-3">
             {rowCards.map((card) => {
+              if (card.goal) {
+                return (
+                  <div key={card.label} className="col">
+                    <div className={`card ${card.gradient} rounded-3 p-3 h-100`}>
+                      <div className="d-flex align-items-center gap-2 mb-2">
+                        <span className="summary-card-icon">
+                          <Target size={18} />
+                        </span>
+                        <span className="small opacity-75">{card.label}</span>
+                      </div>
+                      <div className="h5 fw-bold mb-0 text-center">
+                        {formatCurrencyCompact(card.amount)}
+                        <span className="opacity-75" style={{ fontSize: "1.1rem" }}>
+                          {" "}/ {formatCurrencyCompact(card.goal.target)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
               const Icon = getSummaryCardIcon(card.label);
               return (
                 <div key={card.label} className="col">
@@ -214,6 +244,16 @@ export function AnnualDashboard({
           </div>
         ))}
       </>
+
+      <div className="d-flex justify-content-end mb-3" style={{ maxWidth: 300, marginInlineStart: "auto" }}>
+        <MultiSearchableSelect
+          options={categories}
+          colorMap={colorMap}
+          selected={excludeCategories}
+          onChange={setExcludeCategories}
+          placeholder="הסתר קטגוריות..."
+        />
+      </div>
 
       {/* Charts row – 50/50 */}
       <div className="row g-4 mb-4">
@@ -256,6 +296,62 @@ export function AnnualDashboard({
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Category detail table with sparklines */}
+      <div className="card rounded-3 border p-3 mb-4">
+        <h3 className="h6 fw-bold mb-3">פירוט לפי קטגוריה</h3>
+        <div className="table-responsive">
+          <table className="table table-sm mb-0" style={{ fontSize: "0.85rem" }}>
+            <thead>
+              <tr>
+                <th>קטגוריה</th>
+                <th>מגמה</th>
+                <th className="text-start">סה&quot;כ</th>
+                <th className="text-start d-none d-md-table-cell">ממוצע</th>
+                <th className="text-start">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.rows
+                .filter((r) => r.total != null && r.total > 0)
+                .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
+                .map((row) => (
+                  <tr key={row.category}>
+                    <td>
+                      <span className="d-flex align-items-center gap-2">
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            backgroundColor: colorMap[row.category] || "#6c757d",
+                            flexShrink: 0,
+                          }}
+                        />
+                        {row.category}
+                      </span>
+                    </td>
+                    <td>
+                      <CategorySparkline
+                        data={row.months}
+                        color={colorMap[row.category] || "#6c757d"}
+                      />
+                    </td>
+                    <td className="text-start">
+                      <span dir="ltr">{formatCurrency(row.total ?? 0)}</span>
+                    </td>
+                    <td className="text-start d-none d-md-table-cell">
+                      <span dir="ltr">{formatCurrency(row.average ?? 0)}</span>
+                    </td>
+                    <td className="text-start">
+                      <span dir="ltr">{row.percentage != null ? `${row.percentage.toFixed(2)}%` : "—"}</span>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

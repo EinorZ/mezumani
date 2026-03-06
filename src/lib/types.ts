@@ -118,6 +118,7 @@ export interface AppConfig {
   categoryMappings: CategoryMapping[];
   expenseRenameRules: ExpenseRenameRule[];
   incomeSources: IncomeSource[];
+  annualSavingsGoal: number;
 }
 
 export interface VacationMonthRow {
@@ -209,7 +210,6 @@ export interface StockHolding {
   totalInvestedILS: number;
   totalSoldILS: number;
   totalPurchaseFee: number;
-  totalMgmtFees: number;
   currentPriceILS: number;
   currentValueILS: number;
   profitLoss: number;
@@ -226,7 +226,6 @@ export interface StockTermGroup {
   holdings: StockHolding[];
   totalValueILS: number;
   totalInvestedILS: number;
-  totalFees: number;
   profitLoss: number;
   profitLossPercent: number;
   allocationPercent: number;
@@ -268,6 +267,7 @@ export interface NvidiaCompensationData {
   grants: RsuGrant[];
   currentNvdaPriceUsd: number;
   usdToIls: number;
+  usdToIlsError: boolean;
   summary: NvidiaPortfolioSummary;
   grossSoFar: number;
   monthlySalary: number;
@@ -295,7 +295,6 @@ export interface PortfolioReturns {
 export interface StockPortfolioTotals {
   totalValueILS: number;
   totalInvestedILS: number;
-  totalFees: number;
   totalProfitLoss: number;
   totalProfitLossPercent: number;
   estimatedCapitalGainsTax: number;
@@ -313,5 +312,8 @@ export interface StockDashboardData {
   totals: StockPortfolioTotals;
   currencyExposure: CurrencyExposure;
   usdToIls: number;
+  usdToIlsError: boolean;
+  /** Live price in ILS for every configured stock symbol */
+  priceBySymbolILS: Record<string, number>;
   lastUpdated: string;
 }

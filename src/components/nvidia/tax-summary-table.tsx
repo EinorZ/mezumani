@@ -11,6 +11,7 @@ export interface TaxBreakdown {
   capGains: number;
   tax: number;
   net: number;
+  cost?: number;
 }
 
 export function TaxSummaryTable({
@@ -69,6 +70,14 @@ export function TaxSummaryTable({
             {formatCurrency(d.net)}
           </td>
         </tr>
+        {d.cost != null && d.cost > 0 && (
+          <tr className="fw-bold">
+            <td>אחוז רווח</td>
+            <td dir="ltr" className={d.net - d.cost >= 0 ? "text-success" : "text-danger"}>
+              {(((d.net - d.cost) / d.cost) * 100).toFixed(1)}%
+            </td>
+          </tr>
+        )}
       </tbody>
     </table>
   );

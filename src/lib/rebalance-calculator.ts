@@ -30,8 +30,9 @@ export function computeRebalanceTableRows(
     (s, v) => s + v,
     0,
   );
-  const rows = recommendations.map((rec) => {
-    const allocatedAmount = effectiveAmounts[rec.label] ?? rec.recommendedAmount;
+  // Resolve stock price for each label
+  const priceForLabel: Record<string, number> = {};
+  for (const rec of recommendations) {
     const selectedSymbol = selectedStocks[rec.label];
     let stockPrice = selectedSymbol ? (priceBySymbol[selectedSymbol] ?? 0) : 0;
     if (stockPrice === 0 && selectedSymbol) {
@@ -43,9 +44,79 @@ export function computeRebalanceTableRows(
         }
       }
     }
-    const autoShareCount = stockPrice > 0 ? Math.floor(allocatedAmount / stockPrice) : 0;
-    const shareCount =
-      rec.label in manualShareCounts ? manualShareCounts[rec.label] : autoShareCount;
+    priceForLabel[rec.label] = stockPrice;
+  }
+
+  // Initial floor-based share counts
+  const shareCounts: Record<string, number> = {};
+  const totalBudget = recommendations.reduce(
+    (s, rec) => s + (effectiveAmounts[rec.label] ?? rec.recommendedAmount),
+    0,
+  );
+  for (const rec of recommendations) {
+    if (rec.label in manualShareCounts) {
+      shareCounts[rec.label] = manualShareCounts[rec.label];
+    } else {
+      const allocatedAmount = effectiveAmounts[rec.label] ?? rec.recommendedAmount;
+      const price = priceForLabel[rec.label];
+      shareCounts[rec.label] = price > 0 ? Math.floor(allocatedAmount / price) : 0;
+    }
+  }
+
+  // Greedy optimization: spend leftover budget buying shares that minimize
+  // total portfolio deviation (sum of squared deltas from target %)
+  const hasManual = recommendations.some((r) => r.label in manualShareCounts);
+  if (!hasManual) {
+    const computeDeviation = (counts: Record<string, number>) => {
+      const spent = recommendations.reduce(
+        (s, r) => s + counts[r.label] * priceForLabel[r.label],
+        0,
+      );
+      const total = currentTotal + spent;
+      if (total <= 0) return Infinity;
+      let sumSqDelta = 0;
+      for (const rec of recommendations) {
+        const value = rec.currentValue + counts[rec.label] * priceForLabel[rec.label];
+        const pct = (value / total) * 100;
+        const delta = pct - rec.targetPercent;
+        sumSqDelta += delta * delta;
+      }
+      return sumSqDelta;
+    };
+
+    for (let iter = 0; iter < 200; iter++) {
+      const spent = recommendations.reduce(
+        (s, r) => s + shareCounts[r.label] * priceForLabel[r.label],
+        0,
+      );
+      const remaining = totalBudget - spent;
+      const currentDeviation = computeDeviation(shareCounts);
+
+      let bestLabel = "";
+      let bestDeviation = currentDeviation;
+
+      for (const rec of recommendations) {
+        const price = priceForLabel[rec.label];
+        if (price <= 0 || price > remaining) continue;
+
+        shareCounts[rec.label]++;
+        const dev = computeDeviation(shareCounts);
+        shareCounts[rec.label]--;
+
+        if (dev < bestDeviation) {
+          bestDeviation = dev;
+          bestLabel = rec.label;
+        }
+      }
+
+      if (!bestLabel) break;
+      shareCounts[bestLabel]++;
+    }
+  }
+
+  const rows = recommendations.map((rec) => {
+    const stockPrice = priceForLabel[rec.label];
+    const shareCount = shareCounts[rec.label];
     const actualCost = shareCount * stockPrice;
     return {
       label: rec.label,

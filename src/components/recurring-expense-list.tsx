@@ -381,6 +381,7 @@ export function RecurringExpenseList({
     <div>
       {items.length > 0 && (
         <DndContext
+          id="recurring-expenses-dnd"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}

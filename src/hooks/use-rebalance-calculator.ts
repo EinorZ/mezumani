@@ -29,6 +29,7 @@ export function useRebalanceCalculator(
   holdings: StockHolding[],
   config: StockConfig,
   term: InvestmentTerm = "ארוך",
+  livePriceBySymbolILS?: Record<string, number>,
 ) {
   const allLabels = useMemo(() => {
     const labels = new Set<string>();
@@ -101,8 +102,11 @@ export function useRebalanceCalculator(
   }, [config.stocks]);
 
   const priceBySymbol = useMemo(() => {
-    const map: Record<string, number> = {};
+    // Start with live prices for all configured stocks
+    const map: Record<string, number> = { ...livePriceBySymbolILS };
+    // Fill in from holdings as fallback (for stocks not in config)
     for (const h of holdings) {
+      if (map[h.symbol]) continue;
       const price =
         h.currentPriceILS > 0
           ? h.currentPriceILS
@@ -112,7 +116,7 @@ export function useRebalanceCalculator(
       if (price > 0) map[h.symbol] = price;
     }
     return map;
-  }, [holdings]);
+  }, [holdings, livePriceBySymbolILS]);
 
   const recommendations = useMemo(() => {
     if (allocations.length === 0) return [];

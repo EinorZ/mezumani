@@ -65,8 +65,23 @@ export async function fetchIsraeliStockPrice(id: string): Promise<number> {
         `[price] funder ${type}/${id} html length: ${html.length}`,
       );
 
-      // Extract the latest price from fundGraphData JSON embedded in the page
       // All prices on funder are in agorot, divide by 100 to get shekels
+
+      // 1. Try "שער אחרון" (last price) from HTML — most up-to-date
+      // Structure: header row (שער אחרון | שינוי | מחזור מסחר) then value row (price | change | volume)
+      const lastPriceMatch = html.match(
+        /שער אחרון<\/div>[\s\S]*?<div[^>]*bg-grey2[^>]*>(\d+(?:\.\d+)?)<\/div>/,
+      );
+      if (lastPriceMatch) {
+        const price = parseFloat(lastPriceMatch[1]) / 100;
+        console.log(
+          `[price] funder ${id}: ₪${price} (from שער אחרון)`,
+        );
+        setCache(`funder:${id}`, price);
+        return price;
+      }
+
+      // 2. Try fundGraphData JSON embedded in the page
       const graphMatch = html.match(
         /fundGraphData\s*=\s*([\[{][\s\S]*?\}]\s*\}?);/,
       );
@@ -95,7 +110,7 @@ export async function fetchIsraeliStockPrice(id: string): Promise<number> {
         console.log(`[price] funder ${type}/${id}: no graphData match`);
       }
 
-      // Fallback: buyPrice/sellPrice (also in agorot)
+      // 3. Fallback: buyPrice/sellPrice (also in agorot)
       const priceMatch = html.match(
         /"(?:buyPrice|sellPrice)"\s*:\s*([0-9.]+)/,
       );
@@ -118,7 +133,7 @@ export async function fetchIsraeliStockPrice(id: string): Promise<number> {
   return 0;
 }
 
-export async function fetchUsdToIls(): Promise<number> {
+export async function fetchUsdToIls(): Promise<number | null> {
   const cached = getCached("usdils");
   if (cached !== null) return cached;
 
@@ -139,14 +154,18 @@ export async function fetchUsdToIls(): Promise<number> {
       "https://api.frankfurter.dev/v1/latest?base=USD&symbols=ILS",
     );
     const data = await res.json();
-    const rate = data.rates?.ILS ?? 3.6;
-    console.log(`[price] USD/ILS: ${rate} (frankfurter)`);
-    setCache("usdils", rate);
-    return rate;
+    const rate = data.rates?.ILS ?? 0;
+    if (rate > 0) {
+      console.log(`[price] USD/ILS: ${rate} (frankfurter)`);
+      setCache("usdils", rate);
+      return rate;
+    }
   } catch (err) {
     console.error(`[price] USD/ILS frankfurter failed:`, err);
-    return 3.6;
   }
+
+  console.warn(`[price] USD/ILS: all sources failed`);
+  return null;
 }
 
 // ── YTD start-of-year price fetchers ──
@@ -158,17 +177,19 @@ async function fetchYahooYTDStartPrice(symbol: string): Promise<number> {
 
   try {
     const year = new Date().getFullYear();
+    const prevYear = year - 1;
     const results = await yahooFinance.historical(symbol, {
-      period1: `${year}-01-01`,
-      period2: `${year}-01-07`,
+      period1: `${prevYear}-12-24`,
+      period2: `${prevYear}-12-31`,
     });
     if (results.length > 0) {
-      const price = results[0].close;
-      console.log(`[ytd] yahoo ${symbol}: start-of-year price $${price}`);
+      const last = results[results.length - 1];
+      const price = last.close;
+      console.log(`[ytd] yahoo ${symbol}: last trading day of ${prevYear}: ${last.date.toISOString().split("T")[0]} $${price}`);
       setCache(cacheKey, price);
       return price;
     }
-    console.log(`[ytd] yahoo ${symbol}: no historical data for start of year`);
+    console.log(`[ytd] yahoo ${symbol}: no historical data for end of ${prevYear}`);
   } catch (err) {
     console.error(`[ytd] yahoo ${symbol} historical failed:`, err);
   }
@@ -204,28 +225,25 @@ async function fetchFunderYTDStartPrice(id: string): Promise<number> {
         // Check if entries have date field (field name is "c")
         if (entries[0].c) {
           const year = new Date().getFullYear();
-          const jan1 = new Date(year, 0, 1).getTime();
-          let closest = entries[0];
-          let closestDiff = Infinity;
+          const jan1Str = `${year}-01-01`;
 
-          for (const entry of entries) {
-            if (!entry.c) continue;
-            const entryDate = new Date(entry.c).getTime();
-            const diff = Math.abs(entryDate - jan1);
-            if (diff < closestDiff) {
-              closestDiff = diff;
-              closest = entry;
+          // Last entry before Jan 1 (last trading day of previous year)
+          const beforeJan1 = entries
+            .filter((e) => e.c && e.c < jan1Str)
+            .sort((a, b) => b.c!.localeCompare(a.c!));
+          const lastPrevYear = beforeJan1[0];
+
+          // Only use if within 14 days before Jan 1
+          if (lastPrevYear) {
+            const diffMs = new Date(jan1Str).getTime() - new Date(lastPrevYear.c!).getTime();
+            if (diffMs <= 14 * 24 * 60 * 60 * 1000) {
+              const price = lastPrevYear.p / 100; // agorot to shekels
+              console.log(
+                `[ytd] funder ${id}: last trading day of prev year ₪${price} (date: ${lastPrevYear.c})`,
+              );
+              setCache(cacheKey, price);
+              return price;
             }
-          }
-
-          // Only use if within 14 days of Jan 1
-          if (closestDiff <= 14 * 24 * 60 * 60 * 1000) {
-            const price = closest.p / 100; // agorot to shekels
-            console.log(
-              `[ytd] funder ${id}: start-of-year price ₪${price} (date: ${closest.c})`,
-            );
-            setCache(cacheKey, price);
-            return price;
           }
         }
 

@@ -211,7 +211,7 @@ export function CategoryChart({
               className="fw-bold"
               style={{ fontSize: "0.95rem", color: hoveredItem.color }}
             >
-              {hoveredItem.percent.toFixed(1)}%
+              {hoveredItem.percent.toFixed(2)}%
             </div>
             <div className="text-muted" style={{ fontSize: "0.7rem" }}>
               {formatCurrencyCompact(hoveredItem.value)}

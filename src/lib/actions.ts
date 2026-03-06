@@ -23,6 +23,7 @@ import {
   updateRecurringExpense,
   removeRecurringExpense,
   reorderRecurringExpenses,
+  reorderSummaryCards as reorderSummaryCardsGS,
   batchImportTransactions,
   addCategoryMapping,
   updateCategoryMapping,
@@ -32,6 +33,7 @@ import {
   removeExpenseRenameRule,
   batchUpdateFields,
   batchToggleTentativeFlag,
+  setMonthDone,
   addIncomeSource,
   updateIncomeSource,
   removeIncomeSource,
@@ -54,11 +56,13 @@ import {
   deleteRsuRow,
   toggleRsuSold,
   setRsuGrossData,
+  setAnnualSavingsGoal,
 } from "./google-sheets";
 import { HEBREW_MONTHS } from "./constants";
 import type {
   TransactionInput,
   RecurringExpense,
+  SummaryCard,
   IncomeSource,
   LabelAllocation,
   PriceSource,
@@ -177,6 +181,11 @@ export async function updateSummaryCard(
   revalidatePath("/settings");
 }
 
+export async function reorderSummaryCards(items: SummaryCard[]) {
+  await reorderSummaryCardsGS(items);
+  revalidatePath("/settings");
+}
+
 // ---- Recurring expense actions ----
 
 export async function addRecurring(
@@ -268,6 +277,14 @@ export async function updateExpenseRenameRuleAction(
 export async function removeExpenseRenameRuleAction(targetName: string) {
   await removeExpenseRenameRule(targetName);
   revalidatePath("/settings");
+}
+
+// ---- Annual savings goal ----
+
+export async function setAnnualSavingsGoalAction(amount: number) {
+  await setAnnualSavingsGoal(amount);
+  revalidatePath("/settings");
+  revalidatePath("/");
 }
 
 // ---- Income source actions ----
@@ -410,6 +427,13 @@ export async function bulkToggleTentative(
 }
 
 export const bulkToggleVacationTentative = bulkToggleTentative;
+
+// ---- Month done toggle ----
+
+export async function toggleMonthDoneAction(sheetTitle: string, done: boolean) {
+  await setMonthDone(sheetTitle, done);
+  revalidatePath("/");
+}
 
 // ──────────────────────────────────────────
 // Stock settings actions
@@ -665,4 +689,19 @@ export async function deleteRsuRowAction(row: number) {
 export async function setRsuGrossDataAction(grossSoFar: number, monthlySalary: number, esppMonthlyContribution: number, esppPurchasePrice: number) {
   await setRsuGrossData(grossSoFar, monthlySalary, esppMonthlyContribution, esppPurchasePrice);
   revalidatePath("/nvidia");
+}
+
+/**
+ * Search expense names across all monthly + vacation sheets.
+ */
+export async function searchAllSheetsAction(query: string) {
+  if (!query || query.trim().length < 2) return [];
+
+  const allSheets = await listSheets();
+  const searchable = allSheets.filter(
+    (s) => s.type === "monthly" || s.type === "vacation",
+  );
+
+  const { searchAllSheets } = await import("./google-sheets");
+  return searchAllSheets(query.trim(), searchable);
 }

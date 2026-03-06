@@ -62,12 +62,14 @@ function groupIntoGrants(vests: RsuVest[]): RsuGrant[] {
 }
 
 export async function getNvidiaCompensationData(): Promise<NvidiaCompensationData> {
-  const [rsuVests, nvdaPrice, usdToIls, grossData] = await Promise.all([
+  const [rsuVests, nvdaPrice, usdToIlsResult, grossData] = await Promise.all([
     getRsuTransactions(),
     fetchUSStockPrice("NVDA"),
     fetchUsdToIls(),
     getRsuGrossData(),
   ]);
+  const usdToIlsError = usdToIlsResult === null;
+  const usdToIls = usdToIlsResult ?? 0;
 
   const grants = groupIntoGrants(rsuVests);
 
@@ -118,6 +120,7 @@ export async function getNvidiaCompensationData(): Promise<NvidiaCompensationDat
     grants,
     currentNvdaPriceUsd: nvdaPrice,
     usdToIls,
+    usdToIlsError,
     summary: {
       unvestedValueIls,
       vestedValueIls,

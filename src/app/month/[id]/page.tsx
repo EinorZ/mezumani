@@ -3,6 +3,7 @@ import {
   listSheets,
   getVacationRowsForMonth,
   syncVacationRowsToMonthSheet,
+  isMonthDone,
 } from "@/lib/google-sheets";
 import {
   CARD_OWNER_COLORS,
@@ -22,6 +23,7 @@ import { IncomeTable } from "@/components/income-bar";
 import { SummaryCards, type SummaryCardData } from "@/components/summary-cards";
 import { updateMonthIncomeAction } from "@/lib/actions";
 import { PageConfigProvider } from "@/contexts/page-config-context";
+import { MonthDoneToggle } from "@/components/month-done-toggle";
 
 interface MonthPageProps {
   params: Promise<{ id: string }>;
@@ -39,6 +41,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
   const title = sheet.title;
 
   const categoryNames = getCategoryNames(config.monthlyCategories);
+  const isDone = await isMonthDone(title);
 
   // Sync vacation rows into the monthly sheet, then fetch data (includes synced rows)
   const vacationSheets = sheets.filter((s) => s.type === "vacation");
@@ -114,8 +117,9 @@ export default async function MonthPage({ params }: MonthPageProps) {
       categoryNames={categoryNames}
     >
       <div className="container-fluid px-4 py-3">
-        <div className="page-header mb-4">
+        <div className="page-header mb-4 d-flex justify-content-between align-items-center">
           <h1 className="h4 fw-bold mb-0">{title}</h1>
+          <MonthDoneToggle sheetTitle={title} initialDone={isDone} />
         </div>
 
         {topCards && <SummaryCards cards={topCards} />}

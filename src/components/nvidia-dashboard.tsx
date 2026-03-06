@@ -47,7 +47,7 @@ export function NvidiaDashboard({ data }: Props) {
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
   const { refreshing, handleRefresh } = usePageRefresh("/nvidia");
 
-  const { grants, currentNvdaPriceUsd, usdToIls, summary } = data;
+  const { grants, currentNvdaPriceUsd, usdToIls, usdToIlsError, summary } = data;
 
   function openPanel(mode: NvidiaPanelMode, editData?: Record<string, unknown>) {
     setPanelMode(mode);
@@ -77,9 +77,15 @@ export function NvidiaDashboard({ data }: Props) {
             <span className="badge bg-light text-dark border" dir="ltr">
               NVDA {formatUsd(currentNvdaPriceUsd)}
             </span>
-            <span className="badge bg-light text-dark border" dir="ltr">
-              USD/ILS {usdToIls.toFixed(2)}
-            </span>
+            {usdToIlsError ? (
+              <span className="badge bg-danger text-white border" dir="ltr">
+                ⚠ שגיאה בטעינת USD/ILS
+              </span>
+            ) : (
+              <span className="badge bg-light text-dark border" dir="ltr">
+                USD/ILS {usdToIls.toFixed(2)}
+              </span>
+            )}
             {minutesAgo <= 60 && (
               <span className="badge bg-light text-muted border">
                 עודכן לפני {minutesAgo} דק׳

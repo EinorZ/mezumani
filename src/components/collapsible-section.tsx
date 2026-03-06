@@ -83,7 +83,7 @@ export function CollapsibleSection({
       </button>
       <div
         ref={contentRef}
-        className="settings-section-body"
+        className={`settings-section-body${maxHeight === "none" ? " open" : ""}`}
         style={{ maxHeight }}
       >
         <div className="settings-section-content">{children}</div>

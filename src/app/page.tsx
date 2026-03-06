@@ -1,28 +1,25 @@
 import { redirect } from "next/navigation";
-import { listSheets } from "@/lib/google-sheets";
-import { getCurrentMonthTitle } from "@/lib/utils";
+import { listSheets, batchGetMonthsDone } from "@/lib/google-sheets";
 
 export default async function Home() {
-  const currentMonthTitle = getCurrentMonthTitle();
   const sheets = await listSheets();
-  const currentSheet = sheets.find((s) => s.title === currentMonthTitle);
 
-  if (currentSheet) {
-    redirect(`/month/${currentSheet.sheetId}`);
-  }
-
-  // Fallback: redirect to the most recent monthly sheet available
+  // Sort monthly sheets from oldest to newest
   const monthlySheets = sheets
     .filter((s) => s.type === "monthly")
     .sort(
       (a, b) =>
-        (b.year ?? 0) - (a.year ?? 0) ||
-        (b.monthIndex ?? 0) - (a.monthIndex ?? 0),
+        (a.year ?? 0) - (b.year ?? 0) ||
+        (a.monthIndex ?? 0) - (b.monthIndex ?? 0),
     );
+
   if (monthlySheets.length > 0) {
-    redirect(`/month/${monthlySheets[0].sheetId}`);
+    // Find the oldest month not marked as done
+    const doneFlags = await batchGetMonthsDone(monthlySheets);
+    const target = monthlySheets.find((s) => !doneFlags.get(s.sheetId));
+    // If all are done, fall back to the most recent month
+    redirect(`/month/${(target ?? monthlySheets[monthlySheets.length - 1]).sheetId}`);
   }
 
-  // No monthly sheets at all — stay on home
   redirect("/settings");
 }

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Plus, ChevronDown, ChevronUp } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatNumber } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
 import { TERM_COLORS, TERM_TEXT_COLORS, TERM_LABELS_SHORT } from "@/lib/constants";
 
@@ -204,7 +204,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
           </span>
         </span>
         <span style={{ flex: 0.7 }} className="small">
-          {h.totalShares.toFixed(2)}
+          {formatNumber(h.totalShares)}
         </span>
         <span style={{ flex: 1 }} className="small">
           {formatCurrency(h.avgCostPerShareILS)}
@@ -343,7 +343,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
                 {h.symbol} ({h.displayName})
               </span>
               <span className="text-muted" style={{ fontSize: "0.7rem" }}>
-                {h.totalShares.toFixed(2)} x {formatCurrency(h.avgCostPerShareILS)}
+                {formatNumber(h.totalShares)} x {formatCurrency(h.currentPriceILS)}
               </span>
             </div>
             <span className="text-muted" style={{ fontSize: "0.7rem" }}>
@@ -387,7 +387,7 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
               >
                 <span className="text-muted">{tx.date}</span>
                 <span>
-                  {tx.quantity.toFixed(2)} x {formatCurrency(tx.pricePerUnitILS)}
+                  {formatNumber(tx.quantity)} x {formatCurrency(tx.pricePerUnitILS)}
                 </span>
                 <span className="fw-medium">
                   {formatCurrency(tx.pricePerUnitILS * tx.quantity)}

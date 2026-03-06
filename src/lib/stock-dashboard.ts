@@ -12,7 +12,6 @@ import type {
   StockTransaction,
   StockDefinition,
   InvestmentTerm,
-  BrokerConfig,
   ChartRange,
   PortfolioHistoryPoint,
   PortfolioReturns,
@@ -24,18 +23,19 @@ import type {
  * Compute the full stock dashboard data.
  */
 export async function getStockDashboardData(): Promise<StockDashboardData> {
-  const [config, transactions, usdToIls] = await Promise.all([
+  const [config, transactions, usdToIlsResult] = await Promise.all([
     getStockConfig(),
     getStockTransactions(),
     fetchUsdToIls(),
   ]);
+  const usdToIlsError = usdToIlsResult === null;
+  const usdToIls = usdToIlsResult ?? 0;
 
   const [prices, ytdStartPrices] = await Promise.all([
     fetchAllPrices(config.stocks),
     fetchYTDStartPrices(config.stocks),
   ]);
   const stockMap = new Map(config.stocks.map((s) => [s.symbol, s]));
-  const brokerMap = new Map(config.brokers.map((b) => [b.name, b]));
 
   // Group transactions by (symbol, term) pair
   const holdingKey = (symbol: string, term: string) => `${symbol}::${term}`;
@@ -55,7 +55,7 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
     const stockDef = stockMap.get(first.symbol);
     if (!stockDef) continue;
 
-    const holding = computeHolding(txs, stockDef, prices, ytdStartPrices, usdToIls, brokerMap);
+    const holding = computeHolding(txs, stockDef, prices, ytdStartPrices, usdToIls);
     if (holding.totalShares > 0) {
       holdings.push(holding);
     }
@@ -81,8 +81,7 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
       (s, h) => s + h.totalInvestedILS,
       0,
     );
-    const totalFees = termHoldings.reduce((s, h) => s + h.totalMgmtFees, 0);
-    const profitLoss = totalValueILS - totalInvestedILS - totalFees;
+    const profitLoss = totalValueILS - totalInvestedILS;
     const profitLossPercent =
       totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
     const allocationPercent =
@@ -94,7 +93,6 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
       holdings: termHoldings,
       totalValueILS,
       totalInvestedILS,
-      totalFees,
       profitLoss,
       profitLossPercent,
       allocationPercent,
@@ -104,8 +102,7 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
 
   // Totals
   const totalInvestedILS = holdings.reduce((s, h) => s + h.totalInvestedILS, 0);
-  const totalFees = holdings.reduce((s, h) => s + h.totalMgmtFees, 0);
-  const totalProfitLoss = totalPortfolioValue - totalInvestedILS - totalFees;
+  const totalProfitLoss = totalPortfolioValue - totalInvestedILS;
   const totalProfitLossPercent =
     totalInvestedILS > 0 ? (totalProfitLoss / totalInvestedILS) * 100 : 0;
   const estimatedCapitalGainsTax =
@@ -138,7 +135,6 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
     totals: {
       totalValueILS: totalPortfolioValue,
       totalInvestedILS,
-      totalFees,
       totalProfitLoss,
       totalProfitLossPercent,
       estimatedCapitalGainsTax,
@@ -161,8 +157,25 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
       },
     },
     usdToIls,
+    usdToIlsError,
+    priceBySymbolILS: buildPriceBySymbolILS(prices, config.stocks, usdToIls),
     lastUpdated: new Date().toISOString(),
   };
+}
+
+function buildPriceBySymbolILS(
+  prices: Map<string, number>,
+  stocks: StockDefinition[],
+  usdToIls: number,
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const s of stocks) {
+    const raw = prices.get(s.symbol) ?? 0;
+    if (raw > 0) {
+      map[s.symbol] = s.currency === "USD" ? raw * usdToIls : raw;
+    }
+  }
+  return map;
 }
 
 function computeHolding(
@@ -171,7 +184,6 @@ function computeHolding(
   prices: Map<string, number>,
   ytdStartPrices: Map<string, number>,
   usdToIls: number,
-  brokerMap: Map<string, BrokerConfig>,
 ): StockHolding {
   let totalShares = 0;
   let totalInvestedILS = 0;
@@ -195,15 +207,6 @@ function computeHolding(
   const avgCostPerShareILS =
     totalShares > 0 ? totalInvestedILS / totalShares : 0;
 
-  // Estimate management fees (rough quarterly estimate)
-  const broker = brokerMap.get(primaryBank);
-  const quartersSinceFirst = estimateQuarters(txs[0]?.date);
-  const totalMgmtFees = broker
-    ? totalInvestedILS *
-      (broker.managementFeePercent / 100) *
-      quartersSinceFirst
-    : 0;
-
   // Current price from source, convert to ILS if USD
   // For "manual" source, use the most recent purchase transaction's price (already in ILS)
   let currentPriceILS: number;
@@ -219,7 +222,7 @@ function computeHolding(
   }
   const currentValueILS = totalShares * currentPriceILS;
 
-  const profitLoss = currentValueILS - totalInvestedILS - totalMgmtFees;
+  const profitLoss = currentValueILS - totalInvestedILS;
   const profitLossPercent =
     totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
 
@@ -241,7 +244,6 @@ function computeHolding(
     totalInvestedILS,
     totalSoldILS,
     totalPurchaseFee,
-    totalMgmtFees,
     currentPriceILS,
     currentValueILS,
     profitLoss,
@@ -254,23 +256,6 @@ function computeHolding(
   };
 }
 
-function estimateQuarters(dateStr?: string): number {
-  if (!dateStr) return 0;
-  const parts = dateStr.split("/");
-  if (parts.length < 2) return 0;
-  const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const yearPart = parts[2]
-    ? parseInt(parts[2], 10)
-    : new Date().getFullYear() % 100;
-  const year = yearPart < 100 ? 2000 + yearPart : yearPart;
-
-  const purchaseDate = new Date(year, month - 1, day);
-  const now = new Date();
-  const diffMs = now.getTime() - purchaseDate.getTime();
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-  return Math.max(0, Math.floor(diffDays / 90));
-}
 
 // ── Portfolio History ──
 

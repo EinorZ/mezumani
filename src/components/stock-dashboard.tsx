@@ -76,7 +76,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
     enabled: perfOpen,
   });
 
-  const { totals, usdToIls, lastUpdated } = data;
+  const { totals, usdToIls, usdToIlsError, lastUpdated } = data;
   const isPositive = totals.totalProfitLoss >= 0;
 
   function openPanel(defaults?: { symbol?: string; type?: "קניה" | "מכירה" }) {
@@ -129,7 +129,6 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
           totalInvestedILS: activeTermGroup.totalInvestedILS,
           totalProfitLoss: activeTermGroup.profitLoss,
           totalProfitLossPercent: activeTermGroup.profitLossPercent,
-          totalFees: activeTermGroup.totalFees,
           estimatedCapitalGainsTax: 0,
           ytdChangePercent: null,
         };
@@ -179,7 +178,11 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
           </button>
         </div>
         <div className="small text-muted mt-2">
-          <span dir="ltr">USD/ILS: {usdToIls.toFixed(2)}</span>
+          {usdToIlsError ? (
+            <span className="text-danger fw-semibold">⚠ שגיאה בטעינת שער USD/ILS</span>
+          ) : (
+            <span dir="ltr">USD/ILS: {usdToIls.toFixed(2)}</span>
+          )}
           <span className="ms-3">
             עודכן לפני {minutesAgo < 1 ? "פחות מדקה" : `${minutesAgo} דקות`}
           </span>
@@ -252,11 +255,6 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
               ({viewIsPositive ? "+" : ""}
               {viewTotals.totalProfitLossPercent.toFixed(2)}%)
             </div>
-            {viewTotals.totalFees > 0 && (
-              <div className="small text-center opacity-75 mt-1">
-                כולל {formatCurrency(viewTotals.totalFees)} עמלות ומסים
-              </div>
-            )}
           </div>
         </div>
         {viewYtdDisplay !== null && (
@@ -329,7 +327,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
 
       {/* Rebalance calculator (ארוך view only) */}
       {viewTerm === "ארוך" && (
-        <RebalanceCalculator holdings={data.holdings} config={config} />
+        <RebalanceCalculator holdings={data.holdings} config={config} priceBySymbolILS={data.priceBySymbolILS} />
       )}
 
       {/* Chart mode toggle + Charts */}

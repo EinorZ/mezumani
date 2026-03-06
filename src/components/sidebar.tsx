@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { SheetInfo, YearGroup } from "@/lib/types";
 import { stripYearSuffix } from "@/lib/utils";
 import { renameSheetAction, createVacation, moveSheetAfterAction } from "@/lib/actions";
+import { useTheme } from "@/components/theme-provider";
 
 interface Props {
   yearGroups: YearGroup[];
@@ -86,6 +87,7 @@ function EditableSheetLink({
 export function Sidebar({ yearGroups }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
   const currentYearSuffix = new Date().getFullYear() % 100;
 
   const [pinned, setPinned] = useLocalStorage("sidebar-pinned", false);
@@ -450,6 +452,14 @@ export function Sidebar({ yearGroups }: Props) {
       </nav>
 
       <div className="sidebar-footer">
+        <button
+          className="sidebar-link border-0 w-100 text-start"
+          style={{ background: "none", cursor: "pointer" }}
+          onClick={toggleTheme}
+          title={theme === "light" ? "Dark mode" : "Light mode"}
+        >
+          {theme === "light" ? "🌙" : "☀️"} {theme === "light" ? "Dark mode" : "Light mode"}
+        </button>
         <Link
           href="/settings"
           className={`sidebar-link ${isActive("/settings") ? "active" : ""}`}

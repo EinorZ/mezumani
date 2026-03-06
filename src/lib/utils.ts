@@ -72,6 +72,15 @@ export function formatCurrency(amount: number): string {
   return currencyFormatter.format(amount);
 }
 
+const numberFormatter = new Intl.NumberFormat("he-IL", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+export function formatNumber(n: number): string {
+  return numberFormatter.format(n);
+}
+
 export function formatCurrencyCompact(amount: number): string {
   if (Math.abs(amount) >= 1_000_000) {
     return `₪${(amount / 1_000_000).toFixed(1)}M`;
@@ -184,8 +193,8 @@ export function parseNumber(value: string | undefined | null): number {
 export function evalMathExpr(input: string): number {
   const s = input.replace(/\s/g, "");
   if (!s) return 0;
-  // Tokenize into numbers and operators
-  const tokens = s.match(/(\d+\.?\d*|[+\-*/])/g);
+  // Tokenize: negative sign only at start or after an operator
+  const tokens = s.match(/(?:^|(?<=[+\-*/]))-?\d+\.?\d*|[+\-*/]|\d+\.?\d*/g);
   if (!tokens) return 0;
   // If it's a single number, fast path
   if (tokens.length === 1) return parseFloat(tokens[0]) || 0;

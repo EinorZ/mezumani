@@ -77,6 +77,7 @@ export function CalcEsppSellForm({
     const totalTax = incomeTax + niAndHealth + yasaf;
     return {
       proceeds,
+      cost: parseFloat(grossState.esppContribution) * 6,
       incomeTax,
       niAndHealth,
       yasaf,
@@ -159,6 +160,7 @@ export function CalcEsppSellForm({
               yasaf: result.yasaf,
               tax: result.totalTax,
               net: result.netIls,
+              cost: result.cost,
             }}
           />
         </div>

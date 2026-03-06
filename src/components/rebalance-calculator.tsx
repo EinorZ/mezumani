@@ -15,6 +15,7 @@ import { useRebalanceCalculator } from "@/hooks/use-rebalance-calculator";
 interface Props {
   holdings: StockHolding[];
   config: StockConfig;
+  priceBySymbolILS: Record<string, number>;
 }
 
 /** Format number with commas: 100000 → "100,000" */
@@ -22,7 +23,7 @@ function formatNum(n: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function RebalanceCalculator({ holdings, config }: Props) {
+export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Props) {
   const [open, setOpen] = useState(false);
 
   const {
@@ -52,7 +53,7 @@ export function RebalanceCalculator({ holdings, config }: Props) {
     removeLabel,
     handleSave,
     stockLabel,
-  } = useRebalanceCalculator(holdings, config);
+  } = useRebalanceCalculator(holdings, config, "ארוך", priceBySymbolILS);
 
   const saving = saveStatus === "saving";
   const saved = saveStatus === "saved";
@@ -285,6 +286,20 @@ export function RebalanceCalculator({ holdings, config }: Props) {
                             >
                               {row.label}
                             </div>
+                            {selectedStocks[row.label] && (
+                              <div
+                                className="text-primary fw-semibold"
+                                style={{ fontSize: "0.75rem" }}
+                                dir="ltr"
+                              >
+                                {selectedStocks[row.label]}
+                                {row.stockPrice > 0 && (
+                                  <span className="text-muted ms-1">
+                                    ({formatCurrency(row.stockPrice)}/unit)
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             <div
                               className="text-muted"
                               style={{ fontSize: "0.75rem" }}

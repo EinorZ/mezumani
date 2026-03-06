@@ -45,6 +45,7 @@ import {
   SETTINGS_RANGE_RENAME_RULE_KEYWORDS,
   SETTINGS_RANGE_INCOME_NAMES,
   SETTINGS_RANGE_INCOME_DATA,
+  SETTINGS_RANGE_ANNUAL_GOAL,
   SETTINGS_RANGE_STOCK_SYMBOLS,
   SETTINGS_RANGE_STOCK_NAMES,
   SETTINGS_RANGE_STOCK_SOURCES,
@@ -254,6 +255,51 @@ export async function getMonthlyData(
 /**
  * Fetch annual summary data by computing from all monthly sheet transactions.
  */
+export async function setMonthDone(title: string, done: boolean) {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${title}'!G1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[done ? "done" : ""]] },
+  });
+}
+
+export async function isMonthDone(title: string): Promise<boolean> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${title}'!G1`,
+  });
+  return res.data.values?.[0]?.[0] === "done";
+}
+
+/**
+ * Batch-fetch done flags for multiple monthly sheets.
+ * Returns a Map from sheetId to boolean.
+ */
+export async function batchGetMonthsDone(
+  monthlySheets: SheetInfo[],
+): Promise<Map<number, boolean>> {
+  const result = new Map<number, boolean>();
+  if (monthlySheets.length === 0) return result;
+
+  const sheets = getSheets();
+  const ranges = monthlySheets.map((s) => `'${s.title}'!G1`);
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: SPREADSHEET_ID,
+    ranges,
+  });
+  const valueRanges = res.data.valueRanges ?? [];
+
+  for (let i = 0; i < monthlySheets.length; i++) {
+    const done = valueRanges[i]?.values?.[0]?.[0] === "done";
+    result.set(monthlySheets[i].sheetId, done);
+  }
+
+  return result;
+}
+
 export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
   const sheets = getSheets();
   const allSheets = await listSheets();
@@ -263,10 +309,11 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     .filter((s) => s.type === "monthly" && s.year === yearSuffix)
     .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
 
-  // Batch-fetch transactions and income from all monthly sheets
+  // Batch-fetch transactions, income, and done flag from all monthly sheets
   const ranges = monthlySheets.flatMap((s) => [
     `'${s.title}'!A2:F`,
     `'${s.title}'!H1:I17`,
+    `'${s.title}'!G1`,
   ]);
   let valueRanges: { values?: string[][] }[] = [];
   if (ranges.length > 0) {
@@ -285,8 +332,12 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
   let totalIncome = 0;
 
   for (let i = 0; i < monthlySheets.length; i++) {
+    // Skip months not marked as done
+    const doneFlag = valueRanges[i * 3 + 2]?.values?.[0]?.[0];
+    if (doneFlag !== "done") continue;
+
     const monthIndex = monthlySheets[i].monthIndex ?? 0;
-    const rawRows = valueRanges[i * 2]?.values ?? [];
+    const rawRows = valueRanges[i * 3]?.values ?? [];
     const catMap = new Map<string, number>();
 
     for (const row of rawRows) {
@@ -301,7 +352,7 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     monthData.set(monthIndex, catMap);
 
     // Parse income for this month
-    const rawIncome = valueRanges[i * 2 + 1]?.values ?? [];
+    const rawIncome = valueRanges[i * 3 + 1]?.values ?? [];
     for (const row of rawIncome.slice(1)) {
       const name = row[0]?.trim() ?? "";
       const amount = parseNumber(row[1]);
@@ -716,6 +767,7 @@ export async function createMonthSheet(
       categoryMappings: [],
       expenseRenameRules: [],
       incomeSources: [],
+      annualSavingsGoal: 0,
     };
   }
   const categoryValues = config.monthlyCategories.map((c) => c.name);
@@ -1049,6 +1101,7 @@ export async function getAppConfig(): Promise<AppConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_RENAME_RULE_KEYWORDS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_NAMES}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_DATA}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ANNUAL_GOAL}`,
     ],
   });
 
@@ -1071,13 +1124,18 @@ export async function getAppConfig(): Promise<AppConfig> {
         return { name: raw, color: DEFAULT_CATEGORY_COLOR };
       });
 
-  const labels = extractStrings(5);
-  const catStrs = extractStrings(6);
+  const labelRows = (valueRanges[5]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const catStrRows = (valueRanges[6]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
   const summaryCards: SummaryCard[] = [];
-  for (let i = 0; i < labels.length; i++) {
+  for (let i = 0; i < labelRows.length; i++) {
+    if (!labelRows[i]) continue;
     summaryCards.push({
-      label: labels[i],
-      categories: (catStrs[i] ?? "")
+      label: labelRows[i],
+      categories: (catStrRows[i] ?? "")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
@@ -1106,24 +1164,37 @@ export async function getAppConfig(): Promise<AppConfig> {
   );
 
   // Parse category mappings from J (names) and K (categories)
-  const mapNames = extractStrings(9);
-  const mapCategories = extractStrings(10);
-  const categoryMappings: CategoryMapping[] = mapNames
-    .map((expenseName, i) => ({
-      expenseName,
-      category: mapCategories[i] ?? "",
-    }))
-    .filter((m) => m.category);
+  // Use raw rows (not filtered) so indices stay aligned between columns
+  const mapNameRows = (valueRanges[9]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const mapCategoryRows = (valueRanges[10]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const categoryMappings: CategoryMapping[] = [];
+  for (let i = 0; i < mapNameRows.length; i++) {
+    const expenseName = mapNameRows[i];
+    const category = mapCategoryRows[i] ?? "";
+    if (expenseName && category) {
+      categoryMappings.push({ expenseName, category });
+    }
+  }
 
   // Parse expense rename rules from L (target names) and M (keywords)
-  const renameTargetNames = extractStrings(11);
-  const renameKeywords = extractStrings(12);
-  const expenseRenameRules: ExpenseRenameRule[] = renameTargetNames
-    .map((targetName, i) => ({
-      targetName,
-      keywords: renameKeywords[i] ?? "",
-    }))
-    .filter((r) => r.keywords);
+  const renameTargetRows = (valueRanges[11]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const renameKeywordRows = (valueRanges[12]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const expenseRenameRules: ExpenseRenameRule[] = [];
+  for (let i = 0; i < renameTargetRows.length; i++) {
+    const targetName = renameTargetRows[i];
+    const keywords = renameKeywordRows[i] ?? "";
+    if (targetName && keywords) {
+      expenseRenameRules.push({ targetName, keywords });
+    }
+  }
 
   // Parse income sources from N (names) and O (data)
   const incomeNames = extractStrings(13);
@@ -1134,6 +1205,10 @@ export async function getAppConfig(): Promise<AppConfig> {
     name,
     amount: parseNumber(incomeDataRows[i] ?? ""),
   }));
+
+  const annualSavingsGoal = parseNumber(
+    valueRanges[15]?.values?.[0]?.[0] ?? "",
+  );
 
   return {
     monthlyCategories: extractCategories(0),
@@ -1146,7 +1221,21 @@ export async function getAppConfig(): Promise<AppConfig> {
     categoryMappings,
     expenseRenameRules,
     incomeSources,
+    annualSavingsGoal,
   };
+}
+
+/**
+ * Write the annual savings goal to cell P2 in the settings sheet.
+ */
+export async function setAnnualSavingsGoal(amount: number): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ANNUAL_GOAL}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[amount > 0 ? String(amount) : ""]] },
+  });
 }
 
 /**
@@ -1264,6 +1353,35 @@ export async function updateSummaryCardItem(
   categories: string,
 ): Promise<void> {
   await updateSettingsRow(SUMMARY_CARD_CONFIG, oldLabel, [newLabel, categories]);
+}
+
+/**
+ * Reorder summary cards by rewriting all F+G rows.
+ */
+export async function reorderSummaryCards(
+  items: SummaryCard[],
+): Promise<void> {
+  const sheets = getSheets();
+
+  // Clear existing data
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!F2:G100`,
+  });
+
+  if (items.length === 0) return;
+
+  // Write in new order
+  const rows = items.map((item) => [
+    item.label,
+    item.categories.join(","),
+  ]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SETTINGS_SHEET_NAME}'!F2:G${rows.length + 1}`,
+    valueInputOption: "RAW",
+    requestBody: { values: rows },
+  });
 }
 
 export async function addRecurringExpense(
@@ -1671,6 +1789,7 @@ export async function createVacationSheet(
       categoryMappings: [],
       expenseRenameRules: [],
       incomeSources: [],
+      annualSavingsGoal: 0,
     };
   }
 
@@ -2042,7 +2161,7 @@ export async function getStockConfig(): Promise<StockConfig> {
     label,
     targetPercent: parseFloat(allocPercents[i]) || 0,
     selectedStock: allocStocks[i] || undefined,
-    color: allocColors[i] || undefined,
+    color: (allocColors[i] && allocColors[i] !== "#000000") ? allocColors[i] : undefined,
   }));
 
   return { stocks, goals, brokers, labelAllocations };
@@ -2682,4 +2801,85 @@ export async function deleteRsuRow(row: number): Promise<void> {
     spreadsheetId: STOCKS_SPREADSHEET_ID,
     range: `'${RSU_SHEET_NAME}'!A${row}:H${row}`,
   });
+}
+
+/**
+ * Search expense names (column B) across multiple sheets.
+ */
+export async function searchAllSheets(
+  query: string,
+  sheetInfos: SheetInfo[],
+): Promise<
+  {
+    sheetTitle: string;
+    sheetId: number;
+    type: SheetInfo["type"];
+    results: { row: number; date: string; expense: string }[];
+  }[]
+> {
+  if (sheetInfos.length === 0) return [];
+
+  const sheets = getSheets();
+  const ranges = sheetInfos.map((s) => `'${s.title}'!A2:B`);
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: SPREADSHEET_ID,
+    ranges,
+  });
+
+  const lowerQuery = query.toLowerCase();
+  const output: {
+    sheetTitle: string;
+    sheetId: number;
+    type: SheetInfo["type"];
+    results: { row: number; date: string; expense: string }[];
+  }[] = [];
+
+  for (let i = 0; i < sheetInfos.length; i++) {
+    const rows = res.data.valueRanges?.[i]?.values;
+    if (!rows) continue;
+
+    const results: { row: number; date: string; expense: string }[] = [];
+    for (let r = 0; r < rows.length; r++) {
+      const expense = rows[r][1] ?? "";
+      if (expense && expense.toLowerCase().includes(lowerQuery)) {
+        results.push({
+          row: r + 2,
+          date: rows[r][0] ?? "",
+          expense,
+        });
+      }
+    }
+
+    if (results.length > 0) {
+      // Sort results within each sheet by date descending (most recent first)
+      results.sort((a, b) => {
+        const da = parseDateForSort(a.date);
+        const db = parseDateForSort(b.date);
+        return db - da;
+      });
+
+      output.push({
+        sheetTitle: sheetInfos[i].title,
+        sheetId: sheetInfos[i].sheetId,
+        type: sheetInfos[i].type,
+        results,
+      });
+    }
+  }
+
+  // Reverse so most recent sheets come first
+  output.reverse();
+
+  return output;
+}
+
+/** Parse DD/MM/YY(YY) to a sortable timestamp. */
+function parseDateForSort(str: string): number {
+  if (!str) return 0;
+  const parts = str.split("/");
+  if (parts.length < 3) return 0;
+  let year = parseInt(parts[2], 10);
+  if (year < 100) year += 2000;
+  return year * 10000 + parseInt(parts[1], 10) * 100 + parseInt(parts[0], 10);
 }

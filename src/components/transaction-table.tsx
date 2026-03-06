@@ -141,13 +141,21 @@ export function TransactionTable({
   const defaultAddForm = { ...emptyForm, month: sheetMonth };
 
   const [editingRow, setEditingRow] = useState<number | null>(null);
+  const lastCardRef = useRef("");
+  const addDayInputRef = useRef<HTMLInputElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
   const [addForm, setAddForm] = useState(defaultAddForm);
   const [editForm, setEditForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showMobileAdd, setShowMobileAdd] = useState(false);
+  const [mobileAddForm, setMobileAddForm] = useState(defaultAddForm);
 
   // Ref for the edit row element to detect outside clicks
   const editRowRef = useRef<HTMLDivElement>(null);
+
+  // Swipe-to-select tracking (no re-renders during swipe)
+  const swipeRef = useRef<{ startX: number; row: number; el: HTMLElement | null } | null>(null);
 
   const addAction = isVacation ? addVacationTransaction : addTransaction;
   const editAction = isVacation ? editVacationTransaction : editTransaction;
@@ -230,27 +238,52 @@ export function TransactionTable({
     if (!addForm.expense.trim() && !addForm.amount.trim()) return;
     const date = buildDate(addForm.day, sheetMonth);
     const amount = evalMathExpr(addForm.amount);
-    setAddForm(defaultAddForm);
+    const category = addForm.category || lookupCategoryMapping(addForm.expense) || "";
+    const card = addForm.card || lastCardRef.current;
+    if (card) lastCardRef.current = card;
+    setAddForm({ ...defaultAddForm, card });
+    requestAnimationFrame(() => addDayInputRef.current?.focus());
     optimistic.handleAdd({
       date,
       expense: addForm.expense,
       amount,
-      category: addForm.category,
-      card: addForm.card,
+      category,
+      card,
       notes: addForm.notes,
       tentative: addForm.tentative,
+    });
+  }
+
+  function handleMobileAdd() {
+    if (!mobileAddForm.expense.trim() && !mobileAddForm.amount.trim()) return;
+    const date = buildDate(mobileAddForm.day, sheetMonth);
+    const amount = evalMathExpr(mobileAddForm.amount);
+    const category = mobileAddForm.category || lookupCategoryMapping(mobileAddForm.expense) || "";
+    const card = mobileAddForm.card || lastCardRef.current;
+    if (card) lastCardRef.current = card;
+    setMobileAddForm({ ...defaultAddForm, card });
+    setShowMobileAdd(false);
+    optimistic.handleAdd({
+      date,
+      expense: mobileAddForm.expense,
+      amount,
+      category,
+      card,
+      notes: mobileAddForm.notes,
+      tentative: mobileAddForm.tentative,
     });
   }
 
   function handleEdit(row: number) {
     const date = buildDate(editForm.day, sheetMonth);
     const amount = evalMathExpr(editForm.amount);
+    const category = editForm.category || lookupCategoryMapping(editForm.expense) || "";
     setEditingRow(null);
     optimistic.handleEdit(row, {
       date,
       expense: editForm.expense,
       amount,
-      category: editForm.category,
+      category,
       card: editForm.card,
       notes: editForm.notes,
       tentative: editForm.tentative,
@@ -352,6 +385,8 @@ export function TransactionTable({
         if (editingRowRef.current !== null) {
           handleEditRef.current(editingRowRef.current);
         } else {
+          // Only handle Enter for add-row if target is inside the transaction table
+          if (!tableContainerRef.current?.contains(e.target as Node)) return;
           handleAddRef.current();
         }
         return;
@@ -433,12 +468,14 @@ export function TransactionTable({
     onCancel?: () => void,
     rowClass?: string,
     ref?: React.RefObject<HTMLDivElement | null>,
+    dayRef?: React.RefObject<HTMLInputElement | null>,
   ) {
     const isEdit = rowClass === "tx-row-edit";
     return (
       <div key={key} ref={ref} className={`tx-row ${rowClass || "tx-row-add"}`}>
         <div style={{ flex: COL.date, minWidth: 0 }}>
           <input
+            ref={dayRef}
             className="form-control form-control-sm"
             placeholder="יום"
             style={{ width: "60px", ...borderlessInput }}
@@ -529,7 +566,7 @@ export function TransactionTable({
   }
 
   return (
-    <div>
+    <div ref={tableContainerRef}>
       {error && (
         <div className="alert alert-danger alert-dismissible py-2 small">
           {error}
@@ -665,7 +702,7 @@ export function TransactionTable({
       </div>
 
       {/* Add row */}
-      {renderInputRow("add", addForm, setAddForm, handleAdd, "הוסף")}
+      {renderInputRow("add", addForm, setAddForm, handleAdd, "הוסף", undefined, undefined, undefined, addDayInputRef)}
 
       {/* Transaction rows */}
       {filteredRows.map((t) =>
@@ -737,9 +774,41 @@ export function TransactionTable({
             <div
               className={`tx-mobile-card d-md-none${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}`}
               onClick={() => {
-                if (t.row >= 0) toggleRow(t.row, false);
+                if (selectedRows.size > 0 && t.row >= 0) {
+                  toggleRow(t.row, false);
+                } else {
+                  startEdit(t);
+                }
               }}
-              onDoubleClick={() => startEdit(t)}
+              onTouchStart={(e) => {
+                if (t.row < 0) return;
+                const touch = e.touches[0];
+                swipeRef.current = { startX: touch.clientX, row: t.row, el: e.currentTarget };
+              }}
+              onTouchMove={(e) => {
+                const sw = swipeRef.current;
+                if (!sw || !sw.el) return;
+                const dx = e.touches[0].clientX - sw.startX;
+                // RTL: swipe left (negative dx) to select
+                if (dx < -30) {
+                  sw.el.classList.add("tx-swiping");
+                  sw.el.style.transform = `translateX(${Math.max(dx, -60)}px)`;
+                } else {
+                  sw.el.classList.remove("tx-swiping");
+                  sw.el.style.transform = "";
+                }
+              }}
+              onTouchEnd={() => {
+                const sw = swipeRef.current;
+                if (!sw || !sw.el) return;
+                const wasSwiping = sw.el.classList.contains("tx-swiping");
+                sw.el.classList.remove("tx-swiping");
+                sw.el.style.transform = "";
+                if (wasSwiping) {
+                  toggleRow(sw.row, false);
+                }
+                swipeRef.current = null;
+              }}
               style={t.row < 0 ? { opacity: 0.5 } : undefined}
             >
               <div className="d-flex justify-content-between align-items-start">
@@ -831,6 +900,105 @@ export function TransactionTable({
             מחק
           </button>
         </div>
+      )}
+
+      {/* Mobile FAB */}
+      {selectedRows.size === 0 && (
+        <button
+          className="tx-fab d-md-none"
+          onClick={() => {
+            setMobileAddForm(defaultAddForm);
+            setShowMobileAdd(true);
+          }}
+          aria-label="הוסף הוצאה"
+        >
+          +
+        </button>
+      )}
+
+      {/* Mobile bottom-sheet */}
+      {showMobileAdd && (
+        <>
+          <div className="tx-bottom-sheet-backdrop" onClick={() => setShowMobileAdd(false)} />
+          <div className="tx-bottom-sheet">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h6 className="fw-bold mb-0">הוצאה חדשה</h6>
+              <button
+                className="btn btn-sm btn-link text-secondary p-0"
+                onClick={() => setShowMobileAdd(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="d-flex gap-2 mb-2">
+              <input
+                className="form-control form-control-sm"
+                placeholder="יום"
+                style={{ width: "70px", flexShrink: 0 }}
+                value={mobileAddForm.day}
+                onChange={(e) => setMobileAddForm({ ...mobileAddForm, day: e.target.value })}
+              />
+              <input
+                className="form-control form-control-sm"
+                placeholder="הוצאה"
+                value={mobileAddForm.expense}
+                onChange={(e) => setMobileAddForm({ ...mobileAddForm, expense: e.target.value })}
+                onBlur={(e) => {
+                  if (!mobileAddForm.category) {
+                    const mapped = lookupCategoryMapping(e.target.value);
+                    if (mapped) setMobileAddForm({ ...mobileAddForm, category: mapped });
+                  }
+                }}
+              />
+            </div>
+            <div className="d-flex gap-2 mb-2 align-items-center">
+              <button
+                type="button"
+                className={`tentative-prefix${mobileAddForm.tentative ? " active" : ""}`}
+                onClick={() => setMobileAddForm({ ...mobileAddForm, tentative: !mobileAddForm.tentative })}
+                title="משוער"
+              >
+                ~
+              </button>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="form-control form-control-sm"
+                placeholder="סכום"
+                style={{
+                  direction: "ltr",
+                  textAlign: "right",
+                  ...(mobileAddForm.tentative ? { color: "#c2770e", fontStyle: "italic" } : {}),
+                }}
+                value={mobileAddForm.amount}
+                onChange={(e) => setMobileAddForm({ ...mobileAddForm, amount: e.target.value })}
+              />
+            </div>
+            <div className="d-flex gap-2 mb-3">
+              <div style={{ flex: 1 }}>
+                <SearchableSelect
+                  options={categories}
+                  colorMap={colorMap}
+                  value={mobileAddForm.category}
+                  onChange={(val) => setMobileAddForm({ ...mobileAddForm, category: val })}
+                  placeholder="קטגוריה"
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <SearchableSelect
+                  options={cards}
+                  colorMap={cardColorMap ?? {}}
+                  value={mobileAddForm.card}
+                  onChange={(val) => setMobileAddForm({ ...mobileAddForm, card: val })}
+                  placeholder="כרטיס"
+                />
+              </div>
+            </div>
+            <button className="btn btn-success w-100" onClick={handleMobileAdd}>
+              הוסף
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
