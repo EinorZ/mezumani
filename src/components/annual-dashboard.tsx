@@ -7,6 +7,7 @@ import { formatCurrency, formatCurrencyCompact, getSummaryCardIcon } from "@/lib
 import type { AnnualData } from "@/lib/types";
 import { MultiSearchableSelect } from "@/components/multi-searchable-select";
 import { Target } from "lucide-react";
+import { MonthAllocationsPanel } from "@/components/month-allocations-panel";
 
 const MonthlyBarChart = dynamic(
   () => import("@/components/monthly-bar-chart").then((m) => m.MonthlyBarChart),
@@ -81,6 +82,9 @@ export function AnnualDashboard({
       },
       totalIncome: data.totalIncome,
       totalSavings: data.totalSavings,
+      monthIncome: data.monthIncome,
+      monthAllocations: data.monthAllocations,
+      monthSheetTitles: data.monthSheetTitles,
     };
   }, [data, excludeCategories]);
 
@@ -298,6 +302,9 @@ export function AnnualDashboard({
           </div>
         </div>
       </div>
+
+      {/* Monthly savings allocation */}
+      <MonthAllocationsPanel data={filteredData} yearSuffix={yearSuffix} />
 
       {/* Category detail table with sparklines */}
       <div className="card rounded-3 border p-3 mb-4">

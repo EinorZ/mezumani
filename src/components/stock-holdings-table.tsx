@@ -18,31 +18,58 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
   const [open, setOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  const filtered = useMemo(() => {
-    let items = [...holdings].sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case "name":
-          cmp = a.displayName.localeCompare(b.displayName);
-          break;
-        case "value":
-          cmp = a.currentValueILS - b.currentValueILS;
-          break;
-        case "pnl":
-          cmp = a.profitLoss - b.profitLoss;
-          break;
-        case "ytd":
-          cmp = (a.ytdChangePercent ?? -Infinity) - (b.ytdChangePercent ?? -Infinity);
-          break;
-        case "quantity":
-          cmp = a.totalShares - b.totalShares;
-          break;
-      }
-      return sortDir === "desc" ? -cmp : cmp;
+  function toggleGroup(label: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
     });
+  }
 
-    return items;
+  const grouped = useMemo(() => {
+    function sortHoldings(items: StockHolding[]) {
+      return [...items].sort((a, b) => {
+        let cmp = 0;
+        switch (sortKey) {
+          case "name":
+            cmp = a.displayName.localeCompare(b.displayName);
+            break;
+          case "value":
+            cmp = a.currentValueILS - b.currentValueILS;
+            break;
+          case "pnl":
+            cmp = a.profitLoss - b.profitLoss;
+            break;
+          case "ytd":
+            cmp = (a.ytdChangePercent ?? -Infinity) - (b.ytdChangePercent ?? -Infinity);
+            break;
+          case "quantity":
+            cmp = a.totalShares - b.totalShares;
+            break;
+        }
+        return sortDir === "desc" ? -cmp : cmp;
+      });
+    }
+
+    const map = new Map<string, StockHolding[]>();
+    for (const h of holdings) {
+      const arr = map.get(h.label) ?? [];
+      arr.push(h);
+      map.set(h.label, arr);
+    }
+
+    return Array.from(map.entries())
+      .map(([label, items]) => ({
+        label,
+        holdings: sortHoldings(items),
+        totalValue: items.reduce((s, h) => s + h.currentValueILS, 0),
+        totalPnl: items.reduce((s, h) => s + h.profitLoss, 0),
+        totalInvested: items.reduce((s, h) => s + h.totalInvestedILS, 0),
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue);
   }, [holdings, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
@@ -131,10 +158,22 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
             YTD{sortArrow("ytd")}
           </span>
         </div>
-        {filtered.map((h) => (
-          <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
+        {grouped.map((g) => (
+          <div key={g.label}>
+            <LabelGroupHeader
+              label={g.label}
+              totalValue={g.totalValue}
+              totalPnl={g.totalPnl}
+              totalInvested={g.totalInvested}
+              collapsed={collapsedGroups.has(g.label)}
+              onToggle={() => toggleGroup(g.label)}
+            />
+            {!collapsedGroups.has(g.label) && g.holdings.map((h) => (
+              <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
+            ))}
+          </div>
         ))}
-        {filtered.length === 0 && (
+        {grouped.length === 0 && (
           <div className="text-center text-muted small py-3">
             אין אחזקות להצגה
           </div>
@@ -143,10 +182,25 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
 
       {/* Mobile cards */}
       <div className="d-lg-none p-3">
-        {filtered.map((h) => (
-          <HoldingCard key={`${h.symbol}-${h.term}-m`} holding={h} />
+        {grouped.map((g) => (
+          <div key={g.label}>
+            <div
+              className="d-flex align-items-center justify-content-between mb-2 mt-1"
+              style={{ borderBottom: "1px solid #dee2e6", paddingBottom: "0.25rem", cursor: "pointer" }}
+              onClick={() => toggleGroup(g.label)}
+            >
+              <div className="d-flex align-items-center gap-1">
+                {collapsedGroups.has(g.label) ? <ChevronDown size={14} className="text-muted" /> : <ChevronUp size={14} className="text-muted" />}
+                <span className="fw-semibold small">{g.label}</span>
+              </div>
+              <span className="small text-muted">{formatCurrency(g.totalValue)}</span>
+            </div>
+            {!collapsedGroups.has(g.label) && g.holdings.map((h) => (
+              <HoldingCard key={`${h.symbol}-${h.term}-m`} holding={h} />
+            ))}
+          </div>
         ))}
-        {filtered.length === 0 && (
+        {grouped.length === 0 && (
           <div className="text-center text-muted small py-3">
             אין אחזקות להצגה
           </div>
@@ -291,6 +345,65 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
         </div>
       )}
     </>
+  );
+}
+
+function LabelGroupHeader({
+  label,
+  totalValue,
+  totalPnl,
+  totalInvested,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  totalValue: number;
+  totalPnl: number;
+  totalInvested: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const isPositive = totalPnl >= 0;
+  const pnlColor = isPositive ? "#198754" : "#dc3545";
+  const pnlPercent = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
+
+  return (
+    <div
+      className="d-flex align-items-center px-2 py-1 gap-3"
+      style={{
+        backgroundColor: "#f1f3f5",
+        borderTop: "1px solid #dee2e6",
+        borderBottom: "1px solid #dee2e6",
+        marginTop: "0.25rem",
+        cursor: "pointer",
+        userSelect: "none",
+      }}
+      onClick={onToggle}
+    >
+      <span className="fw-semibold small d-flex align-items-center gap-1" style={{ flex: 2 }}>
+        {collapsed ? <ChevronDown size={13} className="text-muted" /> : <ChevronUp size={13} className="text-muted" />}
+        {label}
+      </span>
+      <span style={{ flex: 0.7 }} />
+      <span style={{ flex: 0.7 }} />
+      <span style={{ flex: 1 }} />
+      <span style={{ flex: 1 }} />
+      <span className="fw-semibold small" style={{ flex: 1 }}>
+        {formatCurrency(totalValue)}
+      </span>
+      <span
+        className="fw-medium small"
+        style={{ flex: 1.2, color: pnlColor }}
+        dir="ltr"
+      >
+        {isPositive ? "+" : ""}
+        {formatCurrency(Math.abs(totalPnl))}{" "}
+        <span className="opacity-75">
+          ({isPositive ? "+" : "-"}{Math.abs(pnlPercent).toFixed(1)}%)
+        </span>
+      </span>
+      <span style={{ flex: 0.7 }} />
+    </div>
   );
 }
 

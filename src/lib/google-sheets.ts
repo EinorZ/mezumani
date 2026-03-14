@@ -7,6 +7,7 @@ import type {
   CardBreakdown,
   AnnualData,
   AnnualRow,
+  MonthAllocation,
   AppConfig,
   CategoryItem,
   SummaryCard,
@@ -309,11 +310,12 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     .filter((s) => s.type === "monthly" && s.year === yearSuffix)
     .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
 
-  // Batch-fetch transactions, income, and done flag from all monthly sheets
+  // Batch-fetch transactions, income, done flag, and allocations from all monthly sheets
   const ranges = monthlySheets.flatMap((s) => [
     `'${s.title}'!A2:F`,
     `'${s.title}'!H1:I17`,
     `'${s.title}'!G1`,
+    `'${s.title}'!K1:L10`,
   ]);
   let valueRanges: { values?: string[][] }[] = [];
   if (ranges.length > 0) {
@@ -328,16 +330,21 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
   // monthData[monthIndex] = Map<category, amount>
   const monthData = new Map<number, Map<string, number>>();
   const allCategories = new Set<string>();
+  const monthIncomeMap = new Map<number, number>();
+  const monthAllocationsMap = new Map<number, MonthAllocation[]>();
+  const monthSheetTitlesMap = new Map<number, string>();
 
   let totalIncome = 0;
 
   for (let i = 0; i < monthlySheets.length; i++) {
     // Skip months not marked as done
-    const doneFlag = valueRanges[i * 3 + 2]?.values?.[0]?.[0];
+    const doneFlag = valueRanges[i * 4 + 2]?.values?.[0]?.[0];
     if (doneFlag !== "done") continue;
 
     const monthIndex = monthlySheets[i].monthIndex ?? 0;
-    const rawRows = valueRanges[i * 3]?.values ?? [];
+    monthSheetTitlesMap.set(monthIndex, monthlySheets[i].title);
+
+    const rawRows = valueRanges[i * 4]?.values ?? [];
     const catMap = new Map<string, number>();
 
     for (const row of rawRows) {
@@ -352,12 +359,24 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     monthData.set(monthIndex, catMap);
 
     // Parse income for this month
-    const rawIncome = valueRanges[i * 3 + 1]?.values ?? [];
+    const rawIncome = valueRanges[i * 4 + 1]?.values ?? [];
+    let monthIncome = 0;
     for (const row of rawIncome.slice(1)) {
       const name = row[0]?.trim() ?? "";
       const amount = parseNumber(row[1]);
-      if (name && amount) totalIncome += amount;
+      if (name && amount) {
+        totalIncome += amount;
+        monthIncome += amount;
+      }
     }
+    monthIncomeMap.set(monthIndex, monthIncome);
+
+    // Parse allocations K1:L10
+    const rawAllocations = valueRanges[i * 4 + 3]?.values ?? [];
+    const allocations: MonthAllocation[] = rawAllocations
+      .map((row) => ({ label: row[0]?.trim() ?? "", amount: parseNumber(row[1]) ?? 0 }))
+      .filter((a) => a.label && a.amount > 0);
+    monthAllocationsMap.set(monthIndex, allocations);
   }
 
   // Grand total across all months
@@ -409,7 +428,16 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
 
   const totalSavings = totalIncome - (grandTotal > 0 ? grandTotal : 0);
 
-  return { year: yearSuffix, rows, totals, totalIncome, totalSavings };
+  return {
+    year: yearSuffix,
+    rows,
+    totals,
+    totalIncome,
+    totalSavings,
+    monthIncome: Object.fromEntries(monthIncomeMap),
+    monthAllocations: Object.fromEntries(monthAllocationsMap),
+    monthSheetTitles: Object.fromEntries(monthSheetTitlesMap),
+  };
 }
 
 // ---- Write functions ----
@@ -1137,7 +1165,7 @@ export async function getAppConfig(): Promise<AppConfig> {
       label: labelRows[i],
       categories: (catStrRows[i] ?? "")
         .split(",")
-        .map((s) => s.trim())
+        .map((s: string) => s.trim())
         .filter(Boolean),
     });
   }
@@ -1543,6 +1571,25 @@ export async function updateMonthIncome(
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `'${sheetTitle}'!H2:I${1 + rows.length}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: rows },
+  });
+}
+
+export async function updateMonthAllocations(
+  sheetTitle: string,
+  allocations: MonthAllocation[],
+): Promise<void> {
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${sheetTitle}'!K1:L10`,
+  });
+  if (allocations.length === 0) return;
+  const rows = allocations.map((a) => [a.label, String(a.amount)]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${sheetTitle}'!K1:L${rows.length}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: rows },
   });

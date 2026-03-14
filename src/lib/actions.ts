@@ -38,6 +38,7 @@ import {
   updateIncomeSource,
   removeIncomeSource,
   updateMonthIncome,
+  updateMonthAllocations,
   addStockDefinition,
   updateStockDefinition,
   removeStockDefinition,
@@ -64,6 +65,7 @@ import type {
   RecurringExpense,
   SummaryCard,
   IncomeSource,
+  MonthAllocation,
   LabelAllocation,
   PriceSource,
   StockCurrency,
@@ -313,6 +315,15 @@ export async function updateMonthIncomeAction(
   entries: IncomeSource[],
 ) {
   await updateMonthIncome(sheetTitle, entries);
+}
+
+export async function updateMonthAllocationsAction(
+  sheetTitle: string,
+  yearSuffix: number,
+  allocations: MonthAllocation[],
+) {
+  await updateMonthAllocations(sheetTitle, allocations);
+  revalidatePath(`/year/${yearSuffix}`);
 }
 
 // ---- Vacation actions ----

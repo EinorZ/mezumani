@@ -58,6 +58,11 @@ export interface AnnualRow {
   percentage: number | null;
 }
 
+export interface MonthAllocation {
+  label: string;
+  amount: number;
+}
+
 export interface AnnualData {
   year: number;
   rows: AnnualRow[];
@@ -68,6 +73,9 @@ export interface AnnualData {
   };
   totalIncome: number;
   totalSavings: number;
+  monthIncome: Record<number, number>;
+  monthAllocations: Record<number, MonthAllocation[]>;
+  monthSheetTitles: Record<number, string>;
 }
 
 export interface SheetInfo {
