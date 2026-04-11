@@ -21,6 +21,12 @@ export default async function YearPage({ params }: YearPageProps) {
   const categories = getCategoryNames(config.monthlyCategories);
   const vacationCategories = ["חול", "חופשה"];
 
+  const fullYear = 2000 + yearSuffix;
+  const goalForYear =
+    config.annualGoals[String(fullYear)] ??
+    config.annualGoals["default"] ??
+    0;
+
   return (
     <AnnualDashboard
       data={data}
@@ -28,7 +34,7 @@ export default async function YearPage({ params }: YearPageProps) {
       categories={categories}
       vacationCategories={vacationCategories}
       yearSuffix={yearSuffix}
-      annualSavingsGoal={config.annualSavingsGoal}
+      annualSavingsGoal={goalForYear}
     />
   );
 }

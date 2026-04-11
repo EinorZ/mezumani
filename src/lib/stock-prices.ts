@@ -133,9 +133,16 @@ export async function fetchIsraeliStockPrice(id: string): Promise<number> {
   return 0;
 }
 
+// Persist last known good rate across requests so a fetch failure never zeros out USD holdings.
+// Initialize with a reasonable fallback so even the first cold-start with both APIs down is safe.
+let _lastKnownUsdToIls = 3.6;
+
 export async function fetchUsdToIls(): Promise<number | null> {
   const cached = getCached("usdils");
-  if (cached !== null) return cached;
+  if (cached !== null) {
+    _lastKnownUsdToIls = cached;
+    return cached;
+  }
 
   try {
     const quote = await yahooFinance.quote("USDILS=X");
@@ -143,6 +150,7 @@ export async function fetchUsdToIls(): Promise<number | null> {
     if (rate > 0) {
       console.log(`[price] USD/ILS: ${rate} (yahoo)`);
       setCache("usdils", rate);
+      _lastKnownUsdToIls = rate;
       return rate;
     }
   } catch (err) {
@@ -158,14 +166,15 @@ export async function fetchUsdToIls(): Promise<number | null> {
     if (rate > 0) {
       console.log(`[price] USD/ILS: ${rate} (frankfurter)`);
       setCache("usdils", rate);
+      _lastKnownUsdToIls = rate;
       return rate;
     }
   } catch (err) {
     console.error(`[price] USD/ILS frankfurter failed:`, err);
   }
 
-  console.warn(`[price] USD/ILS: all sources failed`);
-  return null;
+  console.warn(`[price] USD/ILS: all sources failed, using last known rate ${_lastKnownUsdToIls}`);
+  return _lastKnownUsdToIls;
 }
 
 // ── YTD start-of-year price fetchers ──
@@ -178,12 +187,14 @@ async function fetchYahooYTDStartPrice(symbol: string): Promise<number> {
   try {
     const year = new Date().getFullYear();
     const prevYear = year - 1;
-    const results = await yahooFinance.historical(symbol, {
-      period1: `${prevYear}-12-24`,
-      period2: `${prevYear}-12-31`,
-    });
-    if (results.length > 0) {
-      const last = results[results.length - 1];
+    const results = await yahooFinance.historical(
+      symbol,
+      { period1: `${prevYear}-12-24`, period2: `${prevYear}-12-31` },
+      { validateResult: false },
+    );
+    const validResults = results.filter((r: { close: number | null; date: Date }) => r.close != null);
+    if (validResults.length > 0) {
+      const last = validResults[validResults.length - 1];
       const price = last.close;
       console.log(`[ytd] yahoo ${symbol}: last trading day of ${prevYear}: ${last.date.toISOString().split("T")[0]} $${price}`);
       setCache(cacheKey, price);
@@ -359,11 +370,17 @@ async function fetchYahooHistorical(
   if (cached) return cached;
 
   try {
-    const results = await yahooFinance.historical(symbol, { period1, period2 });
-    const data = results.map((r) => ({
-      date: r.date.toISOString().split("T")[0],
-      price: r.close,
-    }));
+    const results = await yahooFinance.historical(
+      symbol,
+      { period1, period2 },
+      { validateResult: false },
+    );
+    const data = results
+      .filter((r: { close: number | null; date: Date }) => r.close != null)
+      .map((r: { close: number; date: Date }) => ({
+        date: r.date.toISOString().split("T")[0],
+        price: r.close,
+      }));
     console.log(`[hist] yahoo ${symbol}: ${data.length} points`);
     if (data.length > 0) setHistoricalCache(cacheKey, data);
     return data;
@@ -420,6 +437,32 @@ async function fetchFunderHistorical(
   return [];
 }
 
+async function fetchFrankfurterHistoricalUsdIls(
+  period1: string,
+  period2: string,
+): Promise<{ date: string; price: number }[]> {
+  const cacheKey = `hist:frankfurter:USDILS:${period1}:${period2}`;
+  const cached = getHistoricalCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://api.frankfurter.app/${period1}..${period2}?from=USD&to=ILS`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = await res.json();
+    const rates: Record<string, { ILS: number }> = json.rates ?? {};
+    const data = Object.entries(rates)
+      .map(([date, r]) => ({ date, price: r.ILS }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    console.log(`[hist] frankfurter USDILS: ${data.length} points`);
+    if (data.length > 0) setHistoricalCache(cacheKey, data);
+    return data;
+  } catch (err) {
+    console.error(`[hist] frankfurter USDILS failed:`, err);
+    return [];
+  }
+}
+
 export async function fetchHistoricalPrices(
   stocks: StockDefinition[],
   period1: string,
@@ -439,7 +482,7 @@ export async function fetchHistoricalPrices(
       return { symbol: stock.symbol, data };
     }),
     hasUsdStocks
-      ? fetchYahooHistorical("USDILS=X", period1, period2)
+      ? fetchFrankfurterHistoricalUsdIls(period1, period2)
       : Promise.resolve([]),
   ]);
 

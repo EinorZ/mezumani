@@ -145,12 +145,12 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
 
       {/* Compact legend */}
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
-        {data.map((item) => {
+        {data.map((item, idx) => {
           const itemIsHidden = isHidden(item.symbol);
           const visibleIdx = visibleData.findIndex((d) => d.symbol === item.symbol);
           return (
             <div
-              key={item.symbol}
+              key={`${item.symbol}-${idx}`}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",

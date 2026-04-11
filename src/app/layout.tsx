@@ -20,10 +20,12 @@ const rubik = Rubik({
 });
 
 export const metadata: Metadata = {
-  title: "Mezumani",
+  title: "מזומני",
   description: "ניהול תקציב אישי",
+  manifest: "/manifest.json",
   icons: {
     icon: "/icon.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 

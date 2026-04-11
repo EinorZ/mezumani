@@ -54,6 +54,9 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
       });
     }
 
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
     const map = new Map<string, StockHolding[]>();
     for (const h of holdings) {
       const arr = map.get(h.label) ?? [];
@@ -62,13 +65,27 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
     }
 
     return Array.from(map.entries())
-      .map(([label, items]) => ({
-        label,
-        holdings: sortHoldings(items),
-        totalValue: items.reduce((s, h) => s + h.currentValueILS, 0),
-        totalPnl: items.reduce((s, h) => s + h.profitLoss, 0),
-        totalInvested: items.reduce((s, h) => s + h.totalInvestedILS, 0),
-      }))
+      .map(([label, items]) => {
+        // Find most recent transaction date across all holdings in this label
+        let latestDate: Date | null = null;
+        for (const h of items) {
+          for (const tx of h.transactions) {
+            const [d, m, y] = tx.date.split("/").map(Number);
+            if (!d || !m || !y) continue;
+            const txDate = new Date(2000 + y, m - 1, d);
+            if (!latestDate || txDate > latestDate) latestDate = txDate;
+          }
+        }
+        const stale = !latestDate || latestDate < sixMonthsAgo;
+        return {
+          label,
+          holdings: sortHoldings(items),
+          totalValue: items.reduce((s, h) => s + h.currentValueILS, 0),
+          totalPnl: items.reduce((s, h) => s + h.profitLoss, 0),
+          totalInvested: items.reduce((s, h) => s + h.totalInvestedILS, 0),
+          stale,
+        };
+      })
       .sort((a, b) => b.totalValue - a.totalValue);
   }, [holdings, sortKey, sortDir]);
 
@@ -167,6 +184,7 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
               totalInvested={g.totalInvested}
               collapsed={collapsedGroups.has(g.label)}
               onToggle={() => toggleGroup(g.label)}
+              stale={g.stale}
             />
             {!collapsedGroups.has(g.label) && g.holdings.map((h) => (
               <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
@@ -300,50 +318,34 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
             : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(2)}%`}
         </span>
       </div>
-      {expanded && (
-        <div style={{ backgroundColor: "#f8f9fa", padding: "0.5rem 1.5rem 0.75rem 1.5rem" }}>
-          <table className="table table-sm mb-0" style={{ fontSize: "0.75rem" }}>
-            <thead>
-              <tr className="text-muted">
-                <th className="fw-normal border-0 pe-3">תאריך</th>
-                <th className="fw-normal border-0 pe-3">סכום</th>
-                <th className="fw-normal border-0 pe-3">מחיר קניה</th>
-                <th className="fw-normal border-0 pe-3">מחיר נוכחי</th>
-                <th className="fw-normal border-0">רווח/הפסד</th>
-              </tr>
-            </thead>
-            <tbody>
-              {h.transactions.map((tx, i) => {
-                const txCost = tx.pricePerUnitILS * tx.quantity;
-                const txCurrentValue = h.currentPriceILS * tx.quantity;
-                const txPnl = txCurrentValue - txCost;
-                const txPnlPercent = txCost > 0 ? (txPnl / txCost) * 100 : 0;
-                const txPositive = txPnl >= 0;
-
-                return (
-                  <tr key={i}>
-                    <td className="text-muted">{tx.date}</td>
-                    <td>{formatCurrency(txCost)}</td>
-                    <td>{formatCurrency(tx.pricePerUnitILS)}</td>
-                    <td>{formatCurrency(h.currentPriceILS)}</td>
-                    <td
-                      style={{ color: txPositive ? "#198754" : "#dc3545" }}
-                      className="fw-medium"
-                      dir="ltr"
-                    >
-                      {txPositive ? "+" : ""}
-                      {formatCurrency(txPnl)}
-                      <span className="opacity-75 ms-1">
-                        ({txPositive ? "+" : ""}{txPnlPercent.toFixed(2)}%)
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {expanded && h.transactions.map((tx, i) => {
+        const txCost = tx.pricePerUnitILS * tx.quantity;
+        const txCurrentValue = h.currentPriceILS * tx.quantity;
+        const txPnl = txCurrentValue - txCost;
+        const txPnlPercent = txCost > 0 ? (txPnl / txCost) * 100 : 0;
+        const txPositive = txPnl >= 0;
+        return (
+          <div key={i} className="tx-row" style={{ backgroundColor: "#f8f9fa", fontSize: "0.75rem", color: "#555" }}>
+            <span style={{ flex: 2, paddingRight: "1.25rem" }}>{tx.date}</span>
+            <span style={{ flex: 0.7 }} />
+            <span style={{ flex: 0.7 }}>{formatNumber(tx.quantity)}</span>
+            <span style={{ flex: 1 }}>{formatCurrency(tx.pricePerUnitILS)}</span>
+            <span style={{ flex: 1 }} />
+            <span style={{ flex: 1 }}>{formatCurrency(txCost)}</span>
+            <span style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }} className="fw-medium" dir="ltr">
+              {txPositive ? "+" : ""}{formatCurrency(Math.abs(txPnl))}{" "}
+              <span className="opacity-75">({txPositive ? "+" : "-"}{Math.abs(txPnlPercent).toFixed(2)}%)</span>
+            </span>
+            <span
+              style={{ flex: 0.7, color: h.ytdChangePercent === null ? undefined : h.ytdChangePercent >= 0 ? "#198754" : "#dc3545" }}
+              className="fw-medium"
+              dir="ltr"
+            >
+              {h.ytdChangePercent === null ? "" : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(2)}%`}
+            </span>
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -355,6 +357,7 @@ function LabelGroupHeader({
   totalInvested,
   collapsed,
   onToggle,
+  stale,
 }: {
   label: string;
   totalValue: number;
@@ -362,6 +365,7 @@ function LabelGroupHeader({
   totalInvested: number;
   collapsed: boolean;
   onToggle: () => void;
+  stale: boolean;
 }) {
   const isPositive = totalPnl >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
@@ -383,6 +387,15 @@ function LabelGroupHeader({
       <span className="fw-semibold small d-flex align-items-center gap-1" style={{ flex: 2 }}>
         {collapsed ? <ChevronDown size={13} className="text-muted" /> : <ChevronUp size={13} className="text-muted" />}
         {label}
+        {stale && (
+          <span
+            className="badge rounded-pill"
+            style={{ backgroundColor: "#fff3cd", color: "#856404", fontSize: "0.65rem", fontWeight: 500 }}
+            title="לא עודכן ב-6 חודשים האחרונים"
+          >
+            לא עודכן
+          </span>
+        )}
       </span>
       <span style={{ flex: 0.7 }} />
       <span style={{ flex: 0.7 }} />

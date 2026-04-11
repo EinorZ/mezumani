@@ -1,4 +1,9 @@
-import { getStockConfig, getStockTransactions } from "./google-sheets";
+import { cache } from "react";
+import { getStockConfig as _getStockConfig, getStockTransactions as _getStockTransactions } from "./google-sheets";
+
+// Deduplicate per-request: called from both getStockDashboardData and getPortfolioHistory
+const getStockConfig = cache(_getStockConfig);
+const getStockTransactions = cache(_getStockTransactions);
 import {
   fetchAllPrices,
   fetchYTDStartPrices,
@@ -81,7 +86,8 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
       (s, h) => s + h.totalInvestedILS,
       0,
     );
-    const profitLoss = totalValueILS - totalInvestedILS;
+    const totalSoldILS = termHoldings.reduce((s, h) => s + h.totalSoldILS, 0);
+    const profitLoss = totalValueILS + totalSoldILS - totalInvestedILS;
     const profitLossPercent =
       totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
     const allocationPercent =
@@ -102,7 +108,8 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
 
   // Totals
   const totalInvestedILS = holdings.reduce((s, h) => s + h.totalInvestedILS, 0);
-  const totalProfitLoss = totalPortfolioValue - totalInvestedILS;
+  const totalSoldILS = holdings.reduce((s, h) => s + h.totalSoldILS, 0);
+  const totalProfitLoss = totalPortfolioValue + totalSoldILS - totalInvestedILS;
   const totalProfitLossPercent =
     totalInvestedILS > 0 ? (totalProfitLoss / totalInvestedILS) * 100 : 0;
   const estimatedCapitalGainsTax =
@@ -222,7 +229,7 @@ function computeHolding(
   }
   const currentValueILS = totalShares * currentPriceILS;
 
-  const profitLoss = currentValueILS - totalInvestedILS;
+  const profitLoss = currentValueILS + totalSoldILS - totalInvestedILS;
   const profitLossPercent =
     totalInvestedILS > 0 ? (profitLoss / totalInvestedILS) * 100 : 0;
 

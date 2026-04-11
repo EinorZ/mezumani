@@ -186,8 +186,8 @@ export function StockDefinitionList({
       renderAddForm={(submitting, setSubmitting) => {
         async function handleAdd() {
           const s = symbol.trim();
-          const n = displayName.trim();
-          if (!s || !n) return;
+          const n = displayName.trim() || s;
+          if (!s) return;
           setSubmitting(true);
           try {
             await onAdd(s, n, source, currency, label.trim());
@@ -212,10 +212,10 @@ export function StockDefinitionList({
                 />
               </div>
               <div style={{ minWidth: "140px" }}>
-                <label className="form-label small mb-1">שם תצוגה *</label>
+                <label className="form-label small mb-1">שם תצוגה</label>
                 <input
                   className="form-control form-control-sm"
-                  placeholder="Invesco QQQ"
+                  placeholder={symbol.trim() || "Invesco QQQ"}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()}
@@ -259,9 +259,7 @@ export function StockDefinitionList({
               <button
                 className="btn btn-sm btn-success"
                 onClick={handleAdd}
-                disabled={
-                  submitting || !symbol.trim() || !displayName.trim()
-                }
+                disabled={submitting || !symbol.trim()}
               >
                 {submitting ? "..." : "הוסף"}
               </button>

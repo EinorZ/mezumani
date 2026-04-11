@@ -58,8 +58,16 @@ import {
   toggleRsuSold,
   setRsuGrossData,
   setAnnualSavingsGoal,
+  setAnnualGoalForYear,
 } from "./google-sheets";
 import { HEBREW_MONTHS } from "./constants";
+import {
+  ensurePensionSheet,
+  getPensionFunds,
+  addPensionFund,
+  updatePensionFund,
+  deletePensionFund,
+} from "./pension-sheets";
 import type {
   TransactionInput,
   RecurringExpense,
@@ -74,6 +82,8 @@ import type {
   ChartRange,
   PortfolioHistoryPoint,
   PortfolioReturns,
+  PensionOwner,
+  PensionFundType,
 } from "./types";
 
 function buildTransactionValues(data: TransactionInput, isVacation = false) {
@@ -289,6 +299,15 @@ export async function setAnnualSavingsGoalAction(amount: number) {
   revalidatePath("/");
 }
 
+export async function setAnnualGoalForYearAction(
+  year: number | "default",
+  amount: number,
+) {
+  await setAnnualGoalForYear(year, amount);
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+
 // ---- Income source actions ----
 
 export async function addIncome(name: string, amount: number) {
@@ -395,9 +414,10 @@ export async function revalidatePageAction(path: string) {
 
 // ---- Sheet rename action ----
 
-export async function renameSheetAction(sheetId: number, newTitle: string) {
+export async function renameSheetAction(sheetId: number, newTitle: string, pagePath?: string) {
   await renameSheet(sheetId, newTitle);
   revalidatePath("/");
+  if (pagePath) revalidatePath(pagePath);
 }
 
 /** Move sheetId to be immediately after afterSheetId (or to first position if null).
@@ -700,6 +720,46 @@ export async function deleteRsuRowAction(row: number) {
 export async function setRsuGrossDataAction(grossSoFar: number, monthlySalary: number, esppMonthlyContribution: number, esppPurchasePrice: number) {
   await setRsuGrossData(grossSoFar, monthlySalary, esppMonthlyContribution, esppPurchasePrice);
   revalidatePath("/nvidia");
+}
+
+// ──────────────────────────────────────────
+// Pension actions
+// ──────────────────────────────────────────
+
+export async function getPensionData() {
+  await ensurePensionSheet();
+  const funds = await getPensionFunds();
+  return { funds };
+}
+
+export async function addPensionFundAction(
+  owner: PensionOwner,
+  name: string,
+  type: PensionFundType,
+  track: string,
+  balance: number,
+) {
+  const date = new Date().toISOString().split("T")[0];
+  await addPensionFund(owner, name, type, track, balance, date);
+  revalidatePath("/pension");
+}
+
+export async function updatePensionFundAction(
+  row: number,
+  owner: PensionOwner,
+  name: string,
+  type: PensionFundType,
+  track: string,
+  balance: number,
+) {
+  const date = new Date().toISOString().split("T")[0];
+  await updatePensionFund(row, owner, name, type, track, balance, date);
+  revalidatePath("/pension");
+}
+
+export async function deletePensionFundAction(row: number) {
+  await deletePensionFund(row);
+  revalidatePath("/pension");
 }
 
 /**

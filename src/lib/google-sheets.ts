@@ -95,7 +95,6 @@ export async function listSheets() {
     fields: "sheets.properties.sheetId,sheets.properties.title",
   });
 
-  console.log(res.data.sheets);
   return (
     res.data.sheets?.map((s) =>
       classifySheet(s.properties?.sheetId ?? 0, s.properties?.title ?? ""),
@@ -166,6 +165,7 @@ export async function moveSheet(
 export async function getMonthlyData(
   title: string,
   summaryCards: SummaryCard[],
+  categoryMappings?: CategoryMapping[],
 ): Promise<MonthlyData> {
   const sheets = getSheets();
 
@@ -181,7 +181,7 @@ export async function getMonthlyData(
     .map((row, idx) => {
       const rawF = row[5] ?? "";
       const confirmedAmount = parseNumber(row[2]);
-      const tentativeAmount = parseNumber(rawF);
+      const tentativeAmount = rawF.startsWith("auto:") ? 0 : parseNumber(rawF);
       const tentative = !confirmedAmount && tentativeAmount > 0;
       return {
         row: idx + 2,
@@ -195,6 +195,25 @@ export async function getMonthlyData(
       };
     })
     .filter((t) => t.date || t.expense || t.amount);
+
+  // Apply category mappings to uncategorized transactions
+  if (categoryMappings?.length) {
+    for (const t of transactions) {
+      if (!t.category && t.expense) {
+        const lower = t.expense.trim().toLowerCase();
+        for (const m of categoryMappings) {
+          const names = m.expenseName
+            .split(",")
+            .map((n) => n.trim().toLowerCase())
+            .filter(Boolean);
+          if (names.some((n) => n === lower || lower.includes(n))) {
+            t.category = m.category;
+            break;
+          }
+        }
+      }
+    }
+  }
 
   // Compute summary from transactions (exclude tentative)
   const confirmedTransactions = transactions.filter((t) => !t.tentative);
@@ -449,13 +468,14 @@ export async function findFirstEmptyRow(title: string): Promise<number> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${title}'!A2:A219`,
+    range: `'${title}'!A2:B219`,
   });
   const values = res.data.values ?? [];
-  // Append after the last non-empty row (skip gaps left by deletions)
+  // A row is non-empty if column A (date) OR column B (expense name) has content.
+  // This handles recurring expenses which have no date but do have an expense name.
   let lastNonEmpty = -1;
   for (let i = 0; i < values.length; i++) {
-    if (values[i] && values[i][0]) {
+    if ((values[i]?.[0] ?? "") || (values[i]?.[1] ?? "")) {
       lastNonEmpty = i;
     }
   }
@@ -795,7 +815,7 @@ export async function createMonthSheet(
       categoryMappings: [],
       expenseRenameRules: [],
       incomeSources: [],
-      annualSavingsGoal: 0,
+      annualGoals: {},
     };
   }
   const categoryValues = config.monthlyCategories.map((c) => c.name);
@@ -1234,9 +1254,21 @@ export async function getAppConfig(): Promise<AppConfig> {
     amount: parseNumber(incomeDataRows[i] ?? ""),
   }));
 
-  const annualSavingsGoal = parseNumber(
-    valueRanges[15]?.values?.[0]?.[0] ?? "",
-  );
+  const annualGoalRows = (valueRanges[15]?.values ?? [])
+    .map((r) => r[0]?.trim() ?? "")
+    .filter(Boolean);
+  const annualGoals: Record<string, number> = {};
+  for (const row of annualGoalRows) {
+    const colonIdx = row.indexOf(":");
+    if (colonIdx > 0) {
+      const year = row.slice(0, colonIdx).trim();
+      const amount = parseNumber(row.slice(colonIdx + 1));
+      if (year && amount > 0) annualGoals[year] = amount;
+    } else {
+      const amount = parseNumber(row);
+      if (amount > 0) annualGoals["default"] = amount;
+    }
+  }
 
   return {
     monthlyCategories: extractCategories(0),
@@ -1249,21 +1281,70 @@ export async function getAppConfig(): Promise<AppConfig> {
     categoryMappings,
     expenseRenameRules,
     incomeSources,
-    annualSavingsGoal,
+    annualGoals,
   };
 }
 
 /**
- * Write the annual savings goal to cell P2 in the settings sheet.
+ * Set (or clear) the annual savings goal for a specific year or the default.
+ * year: a 4-digit year number, or "default" for the fallback goal.
+ * amount: 0 or negative clears the entry.
  */
-export async function setAnnualSavingsGoal(amount: number): Promise<void> {
+export async function setAnnualGoalForYear(
+  year: number | "default",
+  amount: number,
+): Promise<void> {
   const sheets = getSheets();
-  await sheets.spreadsheets.values.update({
+  const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range: `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ANNUAL_GOAL}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[amount > 0 ? String(amount) : ""]] },
   });
+  const rows = res.data.values ?? [];
+
+  // Find existing row index for this year entry
+  let targetRowIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const cell = rows[i]?.[0]?.trim() ?? "";
+    if (!cell) continue;
+    if (year === "default") {
+      if (!cell.includes(":")) { targetRowIdx = i; break; }
+    } else {
+      if (cell.startsWith(`${year}:`)) { targetRowIdx = i; break; }
+    }
+  }
+
+  const newValue =
+    amount > 0
+      ? year === "default"
+        ? String(amount)
+        : `${year}:${amount}`
+      : "";
+
+  if (targetRowIdx >= 0) {
+    // Update existing row (P2 is row index 0, so sheet row = idx + 2)
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${SETTINGS_SHEET_NAME}'!P${targetRowIdx + 2}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[newValue]] },
+    });
+  } else if (newValue) {
+    // Append to first empty slot after existing rows
+    const nextRow = rows.length + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `'${SETTINGS_SHEET_NAME}'!P${nextRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[newValue]] },
+    });
+  }
+}
+
+/**
+ * Write the annual savings goal (backward-compatible delegate to setAnnualGoalForYear).
+ */
+export async function setAnnualSavingsGoal(amount: number): Promise<void> {
+  await setAnnualGoalForYear("default", amount);
 }
 
 /**
@@ -1836,7 +1917,7 @@ export async function createVacationSheet(
       categoryMappings: [],
       expenseRenameRules: [],
       incomeSources: [],
-      annualSavingsGoal: 0,
+      annualGoals: {},
     };
   }
 
@@ -1943,7 +2024,7 @@ export async function getVacationRowsForMonth(
         }
       }
     }
-    if (amount > 0) {
+    if (amount !== 0) {
       results.push({
         vacationName: vacationSheets[i].title,
         vacationSheetTitle: vacationSheets[i].title,
@@ -2081,14 +2162,16 @@ export async function ensureCurrentSheets(
 /**
  * Read stock configuration from the settings sheet (columns P-Y).
  */
+let _stockSettingsSheetConfirmed = false;
 async function ensureStockSettingsSheet(): Promise<void> {
+  if (_stockSettingsSheetConfirmed) return;
   const sheets = getSheets();
   const res = await sheets.spreadsheets.get({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
     fields: "sheets.properties.title",
   });
   const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
-  if (titles.includes(SETTINGS_SHEET_NAME)) return;
+  if (titles.includes(SETTINGS_SHEET_NAME)) { _stockSettingsSheetConfirmed = true; return; }
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
@@ -2176,12 +2259,13 @@ export async function getStockConfig(): Promise<StockConfig> {
     displayName: names[i] ?? symbol,
     source: (sources[i] ?? "yahoo") as PriceSource,
     currency: (currencies[i] ?? "USD") as StockCurrency,
-    label: labels[i] ?? "",
+    label: labels[i] || symbol,
   }));
 
   const goalTerms = extract(5);
-  const goalLabels = extract(6);
-  const goalAmounts = extract(7);
+  // Use extractAligned so empty G/H cells don't break index alignment with F
+  const goalLabels = extractAligned(6, goalTerms.length);
+  const goalAmounts = extractAligned(7, goalTerms.length);
 
   const goals: StockGoal[] = goalTerms.map((term, i) => ({
     term: term as InvestmentTerm,
@@ -2451,14 +2535,16 @@ export async function saveLabelAllocations(
 /**
  * Ensure the stock transactions sheet exists. Creates it if missing.
  */
+let _stockSheetConfirmed = false;
 export async function ensureStockSheet(): Promise<void> {
+  if (_stockSheetConfirmed) return;
   const sheets = getSheets();
   const res = await sheets.spreadsheets.get({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
     fields: "sheets.properties.title",
   });
   const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
-  if (titles.includes(STOCKS_SHEET_NAME)) return;
+  if (titles.includes(STOCKS_SHEET_NAME)) { _stockSheetConfirmed = true; return; }
 
   const addRes = await sheets.spreadsheets.batchUpdate({
     spreadsheetId: STOCKS_SPREADSHEET_ID,

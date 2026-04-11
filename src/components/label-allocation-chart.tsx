@@ -155,12 +155,12 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
 
       {/* Compact legend */}
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
-        {data.map((item) => {
+        {data.map((item, idx) => {
           const itemIsHidden = isHidden(item.label);
           const visibleIdx = visibleData.findIndex((d) => d.label === item.label);
           return (
             <div
-              key={item.label}
+              key={`${item.label}-${idx}`}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",
@@ -307,11 +307,11 @@ function TreemapChart({ data }: { data: LabelDataItem[] }) {
 
       {/* Legend with filtering */}
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
-        {data.map((item) => {
+        {data.map((item, idx) => {
           const itemIsHidden = isHidden(item.label);
           return (
             <div
-              key={item.label}
+              key={`${item.label}-${idx}`}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",

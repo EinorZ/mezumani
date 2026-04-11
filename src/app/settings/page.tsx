@@ -22,7 +22,7 @@ import {
   addIncome,
   updateIncome,
   removeIncome,
-  setAnnualSavingsGoalAction,
+  setAnnualGoalForYearAction,
   addStock,
   updateStock,
   removeStock,
@@ -50,7 +50,7 @@ import { StockDefinitionList } from "@/components/stock-definition-list";
 import { BrokerList } from "@/components/broker-list";
 import { StockGoalList } from "@/components/stock-goal-list";
 import { LabelColorList } from "@/components/label-color-list";
-import { AnnualGoalInput } from "@/components/annual-goal-input";
+import { AnnualGoalsTable } from "@/components/annual-goals-table";
 
 const cardGroups = [
   { key: "shared" as const, label: "משותף", color: CARD_OWNER_COLORS.shared },
@@ -250,12 +250,9 @@ export default async function SettingsPage() {
           description="יעד חיסכון שנתי המוצג בדשבורד השנתי והחודשי"
           accentColor="#6f42c1"
         >
-          <AnnualGoalInput
-            initialGoal={config.annualSavingsGoal}
-            onSave={async (amount) => {
-              "use server";
-              await setAnnualSavingsGoalAction(amount);
-            }}
+          <AnnualGoalsTable
+            initialGoals={config.annualGoals}
+            onSave={setAnnualGoalForYearAction}
           />
         </CollapsibleSection>
       </div>

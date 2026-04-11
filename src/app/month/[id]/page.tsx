@@ -48,7 +48,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
   const vacationRows = await getVacationRowsForMonth(title, vacationSheets);
   await syncVacationRowsToMonthSheet(title, vacationRows);
 
-  const data = await getMonthlyData(title, config.summaryCards);
+  const data = await getMonthlyData(title, config.summaryCards, config.categoryMappings);
   ensureTransactionCardColors(data.transactions, cardColorMap, config);
 
   // Group card breakdown by owner
@@ -139,9 +139,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
                 />
               </div>
               <TransactionTable
-                transactions={data.transactions.filter(
-                  (t) => !t.notes.startsWith("auto:vacation:"),
-                )}
+                transactions={data.transactions}
                 sheetTitle={title}
                 pagePath={`/month/${id}`}
                 vacationRows={vacationRows}

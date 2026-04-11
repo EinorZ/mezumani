@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import type { StockConfig, TransactionType, InvestmentTerm } from "@/lib/types";
 import { addStockTransactionAction } from "@/lib/actions";
-import { ALL_TERMS, TERM_LABELS } from "@/lib/constants";
+import { ALL_TERMS, TERM_LABELS_SHORT, TERM_COLORS, TERM_TEXT_COLORS } from "@/lib/constants";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 
 interface Props {
@@ -17,12 +17,18 @@ interface Props {
 }
 
 export function StockAddPanel({ config, defaults, onClose }: Props) {
+  // Terms ordered by ALL_TERMS, sourced from configured goals (amount optional)
+  const availableTerms = ALL_TERMS.filter((t) => config.goals.some((g) => g.term === t));
+  const defaultTerm: InvestmentTerm =
+    availableTerms.includes("ארוך") ? "ארוך" : availableTerms[0] ?? "ארוך";
+
   const [type, setType] = useState<TransactionType>(defaults?.type ?? "קניה");
   const [symbol, setSymbol] = useState(defaults?.symbol ?? "");
   const [quantity, setQuantity] = useState("");
   const [pricePerShare, setPricePerShare] = useState("");
+  const [totalPrice, setTotalPrice] = useState("");
   const [date, setDate] = useState(getTodayStr());
-  const [term, setTerm] = useState<InvestmentTerm>("ארוך");
+  const [term, setTerm] = useState<InvestmentTerm>(defaultTerm);
   const [bank, setBank] = useState(config.brokers[0]?.name ?? "");
   const [tax, setTax] = useState("");
   const [comment, setComment] = useState("");
@@ -31,6 +37,32 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   const selectedStock = config.stocks.find((s) => s.symbol === symbol);
+  const isILS = selectedStock?.currency === "ILS";
+
+  function handlePricePerShareChange(val: string) {
+    setPricePerShare(val);
+    const qty = parseFloat(quantity);
+    const price = parseFloat(val);
+    if (!isNaN(price) && !isNaN(qty) && qty > 0) {
+      const priceILS = isILS ? price / 100 : price;
+      setTotalPrice((priceILS * qty).toFixed(2));
+    } else {
+      setTotalPrice("");
+    }
+  }
+
+  function handleTotalPriceChange(val: string) {
+    setTotalPrice(val);
+    const qty = parseFloat(quantity);
+    const total = parseFloat(val);
+    if (!isNaN(total) && !isNaN(qty) && qty > 0) {
+      const priceILS = total / qty;
+      const displayPrice = isILS ? priceILS * 100 : priceILS;
+      setPricePerShare(displayPrice.toFixed(isILS ? 2 : 4));
+    } else {
+      setPricePerShare("");
+    }
+  }
 
   useEscapeKey(onClose);
 
@@ -44,12 +76,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
       // Convert YYYY-MM-DD to DD/MM/YY for Google Sheets
       const [y, m, d] = date.split("-");
       const sheetDate = `${d}/${m}/${y.slice(2)}`;
+      const rawPrice = parseFloat(pricePerShare) || 0;
+      const priceILS = selectedStock?.currency === "ILS" ? rawPrice / 100 : rawPrice;
       await addStockTransactionAction(
         sheetDate,
         type,
         symbol,
         parseFloat(quantity) || 0,
-        parseFloat(pricePerShare) || 0,
+        priceILS,
         selectedStock?.currency ?? "ILS",
         term,
         bank,
@@ -60,6 +94,7 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
       // Reset form for next entry
       setQuantity("");
       setPricePerShare("");
+      setTotalPrice("");
       setTax("");
       setComment("");
       setTimeout(() => setSuccess(false), 3000);
@@ -159,35 +194,51 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
               step="any"
               placeholder="0"
               value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              onChange={(e) => {
+                setQuantity(e.target.value);
+                const qty = parseFloat(e.target.value);
+                const price = parseFloat(pricePerShare);
+                if (!isNaN(qty) && qty > 0 && !isNaN(price) && price > 0) {
+                  const priceILS = isILS ? price / 100 : price;
+                  setTotalPrice((priceILS * qty).toFixed(2));
+                }
+              }}
               required
             />
           </div>
 
-          {/* Total amount in ILS */}
+          {/* Price — two linked inputs */}
           <div>
-            <label className="form-label small fw-medium mb-1">
-              מחיר בש&quot;ח למניה *
-            </label>
-            <input
-              className="form-control form-control-sm"
-              type="number"
-              step="any"
-              placeholder="0"
-              value={pricePerShare}
-              onChange={(e) => setPricePerShare(e.target.value)}
-              required
-            />
-            {quantity && pricePerShare && parseFloat(quantity) > 0 && (
+            <div className="d-flex gap-2">
+              <div className="flex-fill">
+                <label className="form-label small fw-medium mb-1">
+                  {isILS ? "מחיר באגורות למניה *" : "מחיר בש\"ח למניה *"}
+                </label>
+                <input
+                  className="form-control form-control-sm"
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={pricePerShare}
+                  onChange={(e) => handlePricePerShareChange(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="flex-fill">
+                <label className="form-label small fw-medium mb-1">סה&quot;כ (₪)</label>
+                <input
+                  className="form-control form-control-sm"
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={totalPrice}
+                  onChange={(e) => handleTotalPriceChange(e.target.value)}
+                />
+              </div>
+            </div>
+            {isILS && pricePerShare && (
               <div className="small text-muted mt-1">
-                סה&quot;כ:{" "}
-                {(
-                  parseFloat(pricePerShare) * parseFloat(quantity)
-                ).toLocaleString("he-IL", {
-                  style: "currency",
-                  currency: "ILS",
-                  maximumFractionDigits: 2,
-                })}
+                {(parseFloat(pricePerShare) / 100).toFixed(4)} ₪ למניה
               </div>
             )}
           </div>
@@ -206,15 +257,23 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
           {/* Term */}
           <div>
             <label className="form-label small fw-medium mb-1">סוג השקעה</label>
-            <select
-              className="form-select form-select-sm"
-              value={term}
-              onChange={(e) => setTerm(e.target.value as InvestmentTerm)}
-            >
-              {ALL_TERMS.map((t) => (
-                <option key={t} value={t}>{TERM_LABELS[t]}</option>
+            <div className="btn-group w-100">
+              {availableTerms.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="btn btn-sm"
+                  style={
+                    term === t
+                      ? { backgroundColor: TERM_COLORS[t], color: TERM_TEXT_COLORS[t], borderColor: TERM_COLORS[t] }
+                      : { backgroundColor: "transparent", color: "var(--bs-body-color)", borderColor: "var(--bs-border-color)" }
+                  }
+                  onClick={() => setTerm(t)}
+                >
+                  {TERM_LABELS_SHORT[t]}
+                </button>
               ))}
-            </select>
+            </div>
           </div>
 
           {/* Bank */}

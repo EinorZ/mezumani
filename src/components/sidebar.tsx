@@ -259,6 +259,12 @@ export function Sidebar({ yearGroups }: Props) {
         >
           NVIDIA
         </Link>
+        <Link
+          href="/pension"
+          className={`sidebar-link ${isActive("/pension") ? "active" : ""}`}
+        >
+          חיסכון פנסיוני
+        </Link>
 
         {yearGroups.map((group) => {
           const expanded = expandedYears.has(group.year);

@@ -191,10 +191,11 @@ export function TransactionTable({
     serverRows,
     compareTransactions,
   );
-  const sortedRows = useMemo(
-    () => [...sortedServerRows, ...optimistic.pendingAdds],
-    [sortedServerRows, optimistic.pendingAdds],
-  );
+  const sortedRows = useMemo(() => {
+    const vacation = sortedServerRows.filter((t) => t.notes.startsWith("auto:vacation:"));
+    const regular = sortedServerRows.filter((t) => !t.notes.startsWith("auto:vacation:"));
+    return [...regular, ...optimistic.pendingAdds, ...vacation];
+  }, [sortedServerRows, optimistic.pendingAdds]);
 
   const {
     searchQuery,
@@ -720,12 +721,15 @@ export function TransactionTable({
         ) : (
           <div key={t.row}>
             {/* Desktop row */}
+            {(() => {
+              const isAutoVacation = t.notes.startsWith("auto:vacation:");
+              return (
             <div
               className={`tx-row d-none d-md-flex${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
-              onDoubleClick={() => startEdit(t)}
-              style={t.row < 0 ? { opacity: 0.5 } : undefined}
+              onDoubleClick={() => !isAutoVacation && startEdit(t)}
+              style={t.row < 0 ? { opacity: 0.5 } : isAutoVacation ? { backgroundColor: "#f0f7ff" } : undefined}
             >
-              {t.row >= 0 && (
+              {t.row >= 0 && !isAutoVacation && (
                 <div className="tx-check-overlay">
                   <input
                     type="checkbox"
@@ -742,7 +746,14 @@ export function TransactionTable({
               <div className="text-secondary small" style={{ flex: COL.date }}>
                 {formatDateDisplay(t.date)}
               </div>
-              <div style={{ flex: COL.expense }}>{t.expense}</div>
+              <div style={{ flex: COL.expense }}>
+                {isAutoVacation ? (
+                  <span className="d-flex align-items-center gap-1">
+                    <span style={{ fontSize: "0.75em" }}>✈️</span>
+                    {t.expense}
+                  </span>
+                ) : t.expense}
+              </div>
               <div style={{ flex: COL.amount }}>
                 <span className={t.tentative ? "tx-amount-tentative" : undefined}>
                   {t.amount !== 0 ? formatCurrency(t.amount) : ""}
@@ -769,11 +780,15 @@ export function TransactionTable({
                 </span>
               </div>
             </div>
+              );
+            })()}
 
             {/* Mobile card */}
+            {(() => { const isAutoVacation = t.notes.startsWith("auto:vacation:"); return (
             <div
               className={`tx-mobile-card d-md-none${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}`}
               onClick={() => {
+                if (isAutoVacation) return;
                 if (selectedRows.size > 0 && t.row >= 0) {
                   toggleRow(t.row, false);
                 } else {
@@ -781,7 +796,7 @@ export function TransactionTable({
                 }
               }}
               onTouchStart={(e) => {
-                if (t.row < 0) return;
+                if (t.row < 0 || isAutoVacation) return;
                 const touch = e.touches[0];
                 swipeRef.current = { startX: touch.clientX, row: t.row, el: e.currentTarget };
               }}
@@ -809,10 +824,12 @@ export function TransactionTable({
                 }
                 swipeRef.current = null;
               }}
-              style={t.row < 0 ? { opacity: 0.5 } : undefined}
+              style={t.row < 0 ? { opacity: 0.5 } : isAutoVacation ? { backgroundColor: "#f0f7ff" } : undefined}
             >
               <div className="d-flex justify-content-between align-items-start">
-                <span className="fw-medium">{t.expense}</span>
+                <span className="fw-medium">
+                  {isAutoVacation ? <><span style={{ fontSize: "0.75em" }}>✈️</span> {t.expense}</> : t.expense}
+                </span>
                 <span className={t.tentative ? "tx-amount-tentative" : "fw-bold"}>
                   {t.amount !== 0 ? formatCurrency(t.amount) : ""}
                 </span>
@@ -839,6 +856,7 @@ export function TransactionTable({
                 </div>
               </div>
             </div>
+            ); })()}
           </div>
         ),
       )}

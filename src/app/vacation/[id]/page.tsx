@@ -8,6 +8,7 @@ import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
 import { SummaryCards } from "@/components/summary-cards";
 import { PageConfigProvider } from "@/contexts/page-config-context";
+import { VacationTitleEditor } from "@/components/vacation-title-editor";
 
 interface VacationPageProps {
   params: Promise<{ id: string }>;
@@ -34,7 +35,7 @@ export default async function VacationPage({ params }: VacationPageProps) {
     >
       <div className="container-fluid px-4 py-3">
         <div className="page-header mb-4">
-          <h1 className="h4 fw-bold mb-0">{title}</h1>
+          <VacationTitleEditor sheetId={sheetId} title={title} pagePath={`/vacation/${id}`} />
         </div>
 
         <SummaryCards

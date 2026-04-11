@@ -126,7 +126,7 @@ export interface AppConfig {
   categoryMappings: CategoryMapping[];
   expenseRenameRules: ExpenseRenameRule[];
   incomeSources: IncomeSource[];
-  annualSavingsGoal: number;
+  annualGoals: Record<string, number>;
 }
 
 export interface VacationMonthRow {
@@ -282,6 +282,25 @@ export interface NvidiaCompensationData {
   esppMonthlyContribution: number;
   esppPurchasePrice: number;
   lastUpdated: string;
+}
+
+// ── Pension types ──
+
+export type PensionFundType = "פנסיה" | "קרן השתלמות";
+export type PensionOwner = "עינור" | "זיו";
+
+export interface PensionFund {
+  row: number;
+  owner: PensionOwner;
+  name: string;
+  type: PensionFundType;
+  track: string;
+  balance: number;
+  lastUpdated: string;
+}
+
+export interface PensionData {
+  funds: PensionFund[];
 }
 
 export type ChartRange = "1M" | "6M" | "YTD" | "1Y" | "Max";

@@ -125,7 +125,7 @@ export function CategoryMappingList({
         async function handleAdd() {
           if (!name.trim() || !category) return;
           const names = name
-            .split(/[,\n]/)
+            .split(/\n/)
             .map((n) => n.trim())
             .filter(Boolean);
           if (names.length === 0) return;
@@ -142,11 +142,11 @@ export function CategoryMappingList({
           <div className="d-flex gap-2 align-items-end flex-wrap">
             <div style={{ minWidth: "150px", flex: 1 }}>
               <label className="form-label small mb-1">
-                שמות הוצאה * (מופרדים בפסיק)
+                שם הוצאה * (פסיקים = כינויים, שורות = ערכים נפרדים)
               </label>
               <textarea
                 className="form-control form-control-sm"
-                placeholder="למשל: שכר דירה, ארנונה, חשמל"
+                placeholder="למשל: לק, גבות"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {

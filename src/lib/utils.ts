@@ -72,6 +72,17 @@ export function formatCurrency(amount: number): string {
   return currencyFormatter.format(amount);
 }
 
+const currencyFormatterWhole = new Intl.NumberFormat("he-IL", {
+  style: "currency",
+  currency: "ILS",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+export function formatCurrencyWhole(amount: number): string {
+  return currencyFormatterWhole.format(amount);
+}
+
 const numberFormatter = new Intl.NumberFormat("he-IL", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,

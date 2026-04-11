@@ -245,7 +245,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
             </div>
             <div className="h5 fw-bold mb-0 text-center" dir="ltr">
               {viewIsPositive ? "+" : ""}
-              {formatCurrency(viewTotals.totalProfitLoss)}
+              {viewTotals.totalProfitLossPercent.toFixed(2)}%
             </div>
             <div
               className="text-center opacity-75 mt-1"
@@ -253,7 +253,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
               style={{ fontSize: "0.9rem" }}
             >
               ({viewIsPositive ? "+" : ""}
-              {viewTotals.totalProfitLossPercent.toFixed(2)}%)
+              {formatCurrency(viewTotals.totalProfitLoss)})
             </div>
           </div>
         </div>
@@ -273,16 +273,16 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
                 <span className="small opacity-75">YTD</span>
               </div>
               <div className="h5 fw-bold mb-0 text-center" dir="ltr">
-                {viewYtdProfitLossILS >= 0 ? "+" : ""}
-                {formatCurrency(viewYtdProfitLossILS)}
+                {viewYtdPositive ? "+" : ""}
+                {(viewYtdDisplay ?? 0).toFixed(2)}%
               </div>
               <div
                 className="text-center opacity-75 mt-1"
                 dir="ltr"
                 style={{ fontSize: "0.9rem" }}
               >
-                ({viewYtdPositive ? "+" : ""}
-                {(viewYtdDisplay ?? 0).toFixed(2)}%)
+                ({viewYtdProfitLossILS >= 0 ? "+" : ""}
+                {formatCurrency(viewYtdProfitLossILS)})
               </div>
             </div>
           </div>
@@ -312,12 +312,6 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
                     {" "}
                     / {formatCurrencyCompact(goalTarget)}
                   </span>
-                </div>
-                <div
-                  className="text-center opacity-75 mt-1"
-                  style={{ fontSize: "0.9rem" }}
-                >
-                  ({goalProgress.toFixed(0)}%)
                 </div>
               </div>
             </div>
