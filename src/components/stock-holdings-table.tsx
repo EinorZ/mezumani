@@ -332,9 +332,12 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
             <span style={{ flex: 1 }}>{formatCurrency(tx.pricePerUnitILS)}</span>
             <span style={{ flex: 1 }} />
             <span style={{ flex: 1 }}>{formatCurrency(txCost)}</span>
-            <span style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }} className="fw-medium" dir="ltr">
-              {txPositive ? "+" : ""}{formatCurrency(Math.abs(txPnl))}{" "}
-              <span className="opacity-75">({txPositive ? "+" : "-"}{Math.abs(txPnlPercent).toFixed(2)}%)</span>
+            <span style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }} className="fw-medium text-nowrap">
+              <bdi>{txPositive ? "+" : ""}{formatCurrency(Math.abs(txPnl))}</bdi>
+              {" "}
+              <span className="opacity-75">
+                <bdi>({txPositive ? "+" : "-"}{Math.abs(txPnlPercent).toFixed(2)}%)</bdi>
+              </span>
             </span>
             <span
               style={{ flex: 0.7, color: h.ytdChangePercent === null ? undefined : h.ytdChangePercent >= 0 ? "#198754" : "#dc3545" }}
