@@ -8,6 +8,7 @@ import type {
   RecurringExpense,
   CategoryMapping,
   ExpenseRenameRule,
+  SheetInfo,
 } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -16,14 +17,18 @@ import { usePageConfig } from "@/contexts/page-config-context";
 interface Props {
   sheetTitle: string;
   pagePath: string;
+  vacationSheets?: SheetInfo[];
 }
 
 interface ParsedRow {
+  id?: number; // assigned after parsing in handleFileSelect
   date: string;
   expense: string;
   amount: number;
   originalExpense?: string;
   originalAmount?: number;
+  vacationSheet?: string; // title of destination vacation sheet, if any
+  skipRecurring?: boolean; // exclude from recurring matching
 }
 
 interface RecurringMatch {
@@ -31,6 +36,7 @@ interface RecurringMatch {
   originalExpense: string;
   originalAmount: number;
   recurring: RecurringExpense;
+  _row: ParsedRow;
 }
 
 const CREDIT_HEADER_MARKER = "תאריך רכישה";
@@ -107,7 +113,11 @@ function parseCibusRows(rows: unknown[][], headerIdx: number): ParsedRow[] {
       continue;
 
     const rawDate = row[1];
-    const chargeAmount = Math.round(parseFloat(String(row[7] ?? "0")) || 0);
+    // Try col 8 (הסכום שחוייב) first, fall back to col 7 for older formats
+    const chargeAmount = Math.round(
+      parseFloat(String(row[8] ?? "0")) ||
+      parseFloat(String(row[7] ?? "0")) || 0
+    );
 
     if (chargeAmount === 0) continue;
 
@@ -115,8 +125,15 @@ function parseCibusRows(rows: unknown[][], headerIdx: number): ParsedRow[] {
     if (typeof rawDate === "number") {
       date = excelSerialToDate(rawDate);
     } else if (rawDate) {
-      const parts = String(rawDate).split(/[/.\-]/);
-      if (parts.length >= 2) {
+      const rawStr = String(rawDate).split(" ")[0]; // strip time part e.g. "2026-04-30 00:00"
+      const parts = rawStr.split(/[/.\-]/);
+      if (parts.length >= 3 && parts[0].length === 4) {
+        // ISO format: YYYY-MM-DD
+        const day = parts[2].padStart(2, "0");
+        const month = parts[1].padStart(2, "0");
+        date = `${day}.${month}`;
+      } else if (parts.length >= 2) {
+        // DD.MM or DD/MM
         const day = parts[0].padStart(2, "0");
         const month = parts[1].padStart(2, "0");
         date = `${day}.${month}`;
@@ -188,7 +205,7 @@ function matchRecurringExpense(
   );
 }
 
-export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
+export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Props) {
   const {
     allCards: cards,
     cardColorMap,
@@ -207,7 +224,7 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
 
   if (renamedRows && selectedCard) {
     for (const row of renamedRows) {
-      const match = matchRecurringExpense(
+      const match = !row.skipRecurring && matchRecurringExpense(
         row.expense,
         selectedCard,
         recurringExpenses,
@@ -218,6 +235,7 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
           originalExpense: row.expense,
           originalAmount: row.amount,
           recurring: match,
+          _row: row,
         });
       } else {
         // Apply rename display for regular rows
@@ -259,11 +277,11 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
           setError("לא נמצאו עסקאות בקובץ");
           return;
         }
-        const renamed = rows.map((row) => {
+        const renamed = rows.map((row, i) => {
           const expense = applyRenameRules(row.expense, expenseRenameRules);
           return expense !== row.expense
-            ? { ...row, expense, originalExpense: row.expense }
-            : row;
+            ? { ...row, id: i, expense, originalExpense: row.expense }
+            : { ...row, id: i };
         });
         setRenamedRows(renamed);
       } catch (err) {
@@ -280,42 +298,54 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
     setError(null);
 
     try {
-      // Build transactions: recurring use the config values, regular use Excel values
-      const transactions: TransactionInput[] = [];
+      const dateSortKey = (d: string) => {
+        const [day, month] = d.split(/[./]/).map(Number);
+        return (month || 0) * 100 + (day || 0);
+      };
 
-      for (const m of recurringMatches) {
-        transactions.push({
-          date: m.date,
-          expense: m.recurring.name,
-          amount: m.originalAmount,
-          category:
-            m.recurring.category ||
-            lookupCategory(m.recurring.name, categoryMappings),
-          card: selectedCard,
-          notes: "",
-          updateExisting: true,
-        });
-      }
+      // Recurring matches always go to the month sheet
+      const monthTransactions: TransactionInput[] = recurringMatches.map((m) => ({
+        date: m.date,
+        expense: m.recurring.name,
+        amount: m.originalAmount,
+        category: m.recurring.category || lookupCategory(m.recurring.name, categoryMappings),
+        card: selectedCard,
+        notes: "",
+        updateExisting: true,
+      }));
 
+      // Regular rows: split by destination
+      const vacationGroups = new Map<string, TransactionInput[]>();
       for (const row of regularRows) {
-        transactions.push({
+        const tx: TransactionInput = {
           date: row.date,
           expense: row.expense,
           amount: row.amount,
           category: lookupCategory(row.expense, categoryMappings),
           card: selectedCard,
           notes: "",
-        });
+        };
+        if (row.vacationSheet) {
+          if (!vacationGroups.has(row.vacationSheet)) vacationGroups.set(row.vacationSheet, []);
+          vacationGroups.get(row.vacationSheet)!.push(tx);
+        } else {
+          monthTransactions.push(tx);
+        }
       }
 
-      // Sort oldest first (by day.month) so rows appear chronologically in the sheet
-      transactions.sort((a, b) => {
-        const [dA, mA] = a.date.split(/[./]/).map(Number);
-        const [dB, mB] = b.date.split(/[./]/).map(Number);
-        return (mA || 0) - (mB || 0) || (dA || 0) - (dB || 0);
-      });
+      monthTransactions.sort((a, b) => dateSortKey(a.date) - dateSortKey(b.date));
 
-      const count = await addTransactionsBatch(sheetTitle, transactions);
+      let count = 0;
+      if (monthTransactions.length > 0) {
+        count += await addTransactionsBatch(sheetTitle, monthTransactions);
+      }
+      for (const [vacTitle, vacTxs] of vacationGroups) {
+        vacTxs.sort((a, b) => dateSortKey(a.date) - dateSortKey(b.date));
+        count += await addTransactionsBatch(vacTitle, vacTxs, true);
+        const vs = vacationSheets?.find((s) => s.title === vacTitle);
+        if (vs) revalidatePageAction(`/vacation/${vs.sheetId}`);
+      }
+
       setSuccessCount(count);
       setRenamedRows(null);
       revalidatePageAction(pagePath);
@@ -324,6 +354,41 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
     } finally {
       setImporting(false);
     }
+  }
+
+  function handleDeleteRow(id: number | undefined) {
+    setRenamedRows((prev) => prev?.filter((r) => r.id !== id) ?? null);
+  }
+
+  function handleUndoRecurring(id: number | undefined) {
+    setRenamedRows((prev) =>
+      prev?.map((r) => (r.id !== id ? r : { ...r, skipRecurring: true })) ?? null
+    );
+  }
+
+  function handleUndoRename(id: number | undefined) {
+    setRenamedRows((prev) =>
+      prev?.map((r) => {
+        if (r.id !== id || !r.originalExpense) return r;
+        return { ...r, expense: r.originalExpense, originalExpense: undefined };
+      }) ?? null
+    );
+  }
+
+  function handleSetVacation(id: number | undefined, vacationTitle: string | undefined) {
+    setRenamedRows((prev) =>
+      prev?.map((r) => (r.id !== id ? r : { ...r, vacationSheet: vacationTitle })) ?? null
+    );
+  }
+
+  function handleRenameRow(id: number | undefined, newExpense: string) {
+    setRenamedRows((prev) =>
+      prev?.map((r) => {
+        if (r.id !== id) return r;
+        const orig = r.originalExpense ?? r.expense;
+        return { ...r, expense: newExpense, originalExpense: orig };
+      }) ?? null
+    );
   }
 
   function handleClose() {
@@ -433,6 +498,7 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
                         <th className="small text-secondary">תאריך</th>
                         <th className="small text-secondary">הוצאה</th>
                         <th className="small text-secondary">סכום</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
@@ -477,6 +543,24 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
                                 {formatCurrency(m.originalAmount)}
                               </span>
                             </td>
+                            <td className="small" style={{ backgroundColor: bg, whiteSpace: "nowrap" }}>
+                              <button
+                                className="btn btn-sm p-0 text-secondary opacity-75 me-1"
+                                style={{ lineHeight: 1 }}
+                                onClick={() => handleUndoRecurring(m._row.id)}
+                                title="בטל התאמה לקבועה"
+                              >
+                                ↩
+                              </button>
+                              <button
+                                className="btn btn-sm p-0 text-danger opacity-50"
+                                style={{ lineHeight: 1 }}
+                                onClick={() => handleDeleteRow(m._row.id)}
+                                title="הסר"
+                              >
+                                &#10005;
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -492,29 +576,83 @@ export function ExcelImportButton({ sheetTitle, pagePath }: Props) {
                     <th className="small text-secondary">תאריך</th>
                     <th className="small text-secondary">הוצאה</th>
                     <th className="small text-secondary">סכום</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {regularRows.map((row, i) => (
-                    <tr key={i}>
-                      <td className="small">{row.date}</td>
-                      <td className="small">
-                        {row.originalExpense != null ? (
-                          <span title={`שם מקורי: ${row.originalExpense}`}>
-                            <s className="text-secondary me-1">
-                              {row.originalExpense}
-                            </s>
-                            <span className="text-info fw-bold">
-                              {row.expense}
-                            </span>
-                          </span>
-                        ) : (
-                          row.expense
-                        )}
-                      </td>
-                      <td className="small">{formatCurrency(row.amount)}</td>
-                    </tr>
-                  ))}
+                  {regularRows.map((row, i) => {
+                    const renamed = row.originalExpense != null && row.originalExpense !== row.expense;
+                    return (
+                      <tr key={row.id ?? i}>
+                        <td className="small">{row.date}</td>
+                        <td className="small" style={{ minWidth: 120 }}>
+                          <input
+                            type="text"
+                            value={row.expense}
+                            onChange={(e) => handleRenameRow(row.id, e.target.value)}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              outline: "none",
+                              boxShadow: "none",
+                              padding: 0,
+                              width: "100%",
+                              fontWeight: renamed ? "bold" : "normal",
+                              color: renamed ? "#0dcaf0" : "inherit",
+                            }}
+                            title={row.originalExpense ? `שם מקורי: ${row.originalExpense}` : undefined}
+                          />
+                          {renamed && (
+                            <div style={{ fontSize: "0.8em" }}>
+                              <s className="text-secondary">{row.originalExpense}</s>
+                              <button
+                                className="btn btn-sm p-0 text-secondary opacity-75 ms-1"
+                                style={{ lineHeight: 1, fontSize: "inherit" }}
+                                onClick={() => handleUndoRename(row.id)}
+                                title="בטל שינוי שם"
+                              >
+                                ↩
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td className="small">{formatCurrency(row.amount)}</td>
+                        <td className="small" style={{ whiteSpace: "nowrap" }}>
+                          {vacationSheets && vacationSheets.length > 0 && (
+                            <select
+                              value={row.vacationSheet ?? ""}
+                              onChange={(e) => handleSetVacation(row.id, e.target.value || undefined)}
+                              className="me-1"
+                              style={{
+                                fontSize: "0.7em",
+                                border: `1px solid ${row.vacationSheet ? "#0dcaf0" : "#dee2e6"}`,
+                                borderRadius: 4,
+                                padding: "1px 2px",
+                                background: "transparent",
+                                color: row.vacationSheet ? "#0dcaf0" : "#6c757d",
+                                maxWidth: 90,
+                                cursor: "pointer",
+                              }}
+                              title="יעד ייבוא"
+                            >
+                              <option value="">✈ חודש</option>
+                              {vacationSheets.map((vs) => (
+                                <option key={vs.sheetId} value={vs.title}>{vs.title}</option>
+                              ))}
+                            </select>
+                          )}
+                          <button
+                            className="btn btn-sm p-0 text-danger opacity-50"
+                            style={{ lineHeight: 1 }}
+                            onClick={() => handleDeleteRow(row.id)}
+                            title="הסר"
+                          >
+                            &#10005;
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

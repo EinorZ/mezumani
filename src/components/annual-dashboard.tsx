@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { HEBREW_MONTHS } from "@/lib/constants";
 import { formatCurrency, formatCurrencyCompact, getSummaryCardIcon } from "@/lib/utils";
 import type { AnnualData } from "@/lib/types";
 import { MultiSearchableSelect } from "@/components/multi-searchable-select";
-import { Target } from "lucide-react";
+import { ChevronDown, ChevronUp, Target } from "lucide-react";
 import { MonthAllocationsPanel } from "@/components/month-allocations-panel";
+import { setIrregularExpenseCategoriesForYearAction } from "@/lib/actions";
 
 const MonthlyBarChart = dynamic(
   () => import("@/components/monthly-bar-chart").then((m) => m.MonthlyBarChart),
@@ -29,6 +30,8 @@ interface Props {
   vacationCategories: string[];
   yearSuffix: number;
   annualSavingsGoal: number;
+  initialIrregularCategories: string[];
+  hasSavedIrregularCategories: boolean;
 }
 
 export function AnnualDashboard({
@@ -38,15 +41,56 @@ export function AnnualDashboard({
   vacationCategories,
   yearSuffix,
   annualSavingsGoal,
+  initialIrregularCategories,
+  hasSavedIrregularCategories,
 }: Props) {
+  const [expenseView, setExpenseView] = useState<
+    "all" | "normalized"
+  >("all");
+  const [categoryDetailsOpen, setCategoryDetailsOpen] = useState(false);
   const [excludeCategories, setExcludeCategories] = useState<Set<string>>(
-    new Set(),
+    new Set(initialIrregularCategories),
   );
 
+  useEffect(() => {
+    if (!hasSavedIrregularCategories) {
+      void setIrregularExpenseCategoriesForYearAction(
+        2000 + yearSuffix,
+        initialIrregularCategories,
+      );
+    }
+  }, [
+    hasSavedIrregularCategories,
+    initialIrregularCategories,
+    yearSuffix,
+  ]);
+
   const filteredData = useMemo<AnnualData>(() => {
-    const filteredRows = data.rows.filter(
-      (row) => row.category && !excludeCategories.has(row.category),
-    );
+    const completedMonths = data.totals.months
+      .map((amount, monthIndex) => (amount !== null ? monthIndex : null))
+      .filter((monthIndex): monthIndex is number => monthIndex !== null);
+    const filteredRows = data.rows
+      .filter(
+        (row) => row.category,
+      )
+      .map((row) => {
+        if (
+          expenseView !== "normalized" ||
+          !excludeCategories.has(row.category) ||
+          completedMonths.length === 0
+        ) {
+          return row;
+        }
+
+        const monthlyAverage = (row.total ?? 0) / completedMonths.length;
+        return {
+          ...row,
+          months: data.totals.months.map((amount) =>
+            amount !== null ? monthlyAverage : null,
+          ),
+          average: monthlyAverage,
+        };
+      });
 
     const grandTotal = filteredRows.reduce((sum, r) => sum + (r.total ?? 0), 0);
 
@@ -81,12 +125,16 @@ export function AnnualDashboard({
         total: totalSum || null,
       },
       totalIncome: data.totalIncome,
+      totalEsppIncome: data.totalEsppIncome,
+      totalRsuIncome: data.totalRsuIncome,
+      totalIncomeWithoutEquity: data.totalIncomeWithoutEquity,
       totalSavings: data.totalSavings,
       monthIncome: data.monthIncome,
+      monthIncomeWithoutEquity: data.monthIncomeWithoutEquity,
       monthAllocations: data.monthAllocations,
       monthSheetTitles: data.monthSheetTitles,
     };
-  }, [data, excludeCategories]);
+  }, [data, excludeCategories, expenseView]);
 
   const categoryBreakdown = useMemo(
     () =>
@@ -114,13 +162,16 @@ export function AnnualDashboard({
   const { monthlyStacked, activeCategories } = useMemo(() => {
     const cats = filteredData.rows
       .filter((r) => r.total && r.total > 0)
+      .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
       .map((r) => r.category);
 
     const stacked = HEBREW_MONTHS.map((name, i) => {
       const entry: Record<string, string | number> = { name };
       for (const row of filteredData.rows) {
         const val = row.months[i] ?? 0;
-        if (val > 0) entry[row.category] = val;
+        if (val > 0) {
+          entry[row.category] = val;
+        }
       }
       return entry;
     });
@@ -249,14 +300,50 @@ export function AnnualDashboard({
         ))}
       </>
 
-      <div className="d-flex justify-content-end mb-3" style={{ maxWidth: 300, marginInlineStart: "auto" }}>
-        <MultiSearchableSelect
-          options={categories}
-          colorMap={colorMap}
-          selected={excludeCategories}
-          onChange={setExcludeCategories}
-          placeholder="הסתר קטגוריות..."
-        />
+      <div className="card rounded-3 border p-3 mb-3">
+        <div className="d-flex flex-wrap align-items-end justify-content-between gap-3">
+          <div>
+            <div className="small fw-semibold mb-2">תצוגת הוצאות</div>
+            <div className="btn-group btn-group-sm" role="group">
+              <button
+                type="button"
+                className={`btn ${expenseView === "all" ? "btn-light border-secondary fw-semibold" : "btn-outline-secondary"}`}
+                onClick={() => setExpenseView("all")}
+              >
+                כל ההוצאות
+              </button>
+              <button
+                type="button"
+                className={`btn ${expenseView === "normalized" ? "btn-light border-secondary fw-semibold" : "btn-outline-secondary"}`}
+                onClick={() => setExpenseView("normalized")}
+              >
+                הוצאות מנורמלות
+              </button>
+            </div>
+          </div>
+          <div style={{ minWidth: 240, maxWidth: 420 }}>
+            <div className="small text-muted mb-2">עריכת קטגוריות לנרמול</div>
+            <MultiSearchableSelect
+              options={categories}
+              colorMap={colorMap}
+              selected={excludeCategories}
+              onChange={(selected) => {
+                setExcludeCategories(selected);
+                void setIrregularExpenseCategoriesForYearAction(
+                  2000 + yearSuffix,
+                  [...selected],
+                );
+                setExpenseView("normalized");
+              }}
+              placeholder="בחר קטגוריות חריגות..."
+            />
+          </div>
+        </div>
+        {expenseView === "normalized" && excludeCategories.size > 0 && (
+          <div className="small text-muted mt-3">
+            הקטגוריות המסומנות מחולקות באופן שווה בין החודשים שהושלמו.
+          </div>
+        )}
       </div>
 
       {/* Charts row – 50/50 */}
@@ -307,9 +394,32 @@ export function AnnualDashboard({
       <MonthAllocationsPanel data={filteredData} yearSuffix={yearSuffix} />
 
       {/* Category detail table with sparklines */}
-      <div className="card rounded-3 border p-3 mb-4">
-        <h3 className="h6 fw-bold mb-3">פירוט לפי קטגוריה</h3>
-        <div className="table-responsive">
+      <div className="card rounded-3 border mb-4 overflow-hidden">
+        <div
+          className="d-flex align-items-center justify-content-between px-3 py-3"
+          style={{ cursor: "pointer" }}
+          onClick={() => setCategoryDetailsOpen((open) => !open)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setCategoryDetailsOpen((open) => !open);
+            }
+          }}
+          aria-expanded={categoryDetailsOpen}
+        >
+          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+            פירוט לפי קטגוריה
+          </span>
+          {categoryDetailsOpen ? (
+            <ChevronUp size={16} className="text-muted" />
+          ) : (
+            <ChevronDown size={16} className="text-muted" />
+          )}
+        </div>
+        {categoryDetailsOpen && (
+          <div className="table-responsive px-3 pb-3">
           <table className="table table-sm mb-0" style={{ fontSize: "0.85rem" }}>
             <thead>
               <tr>
@@ -359,7 +469,132 @@ export function AnnualDashboard({
                 ))}
             </tbody>
           </table>
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* Additional statistics */}
+      <div className="card rounded-3 border p-3 mb-4">
+        <h3 className="h6 fw-bold mb-3">סטטיסטיקות נוספות</h3>
+        {(() => {
+          const activeMonths = Object.keys(
+            data.monthIncomeWithoutEquity,
+          ).length;
+          const annualExpenses = filteredData.totals.total ?? 0;
+          const monthlyIncome =
+            activeMonths > 0
+              ? data.totalIncomeWithoutEquity / activeMonths
+              : 0;
+          const monthlyExpenses =
+            activeMonths > 0 ? annualExpenses / activeMonths : 0;
+          const annualProfitWithoutEquity =
+            data.totalIncomeWithoutEquity - annualExpenses;
+          const savingsRateWithoutEquity =
+            data.totalIncomeWithoutEquity > 0
+              ? (annualProfitWithoutEquity / data.totalIncomeWithoutEquity) *
+                100
+              : 0;
+          const equityShare =
+            data.totalIncome > 0
+              ? ((data.totalEsppIncome + data.totalRsuIncome) /
+                  data.totalIncome) *
+                100
+              : 0;
+          const completedMonthExpenses = filteredData.totals.months
+            .filter((amount): amount is number => amount !== null)
+            .sort((a, b) => a - b);
+          const medianMonthlyExpenses =
+            completedMonthExpenses.length > 0
+              ? completedMonthExpenses.length % 2 === 0
+                ? (completedMonthExpenses[
+                    completedMonthExpenses.length / 2 - 1
+                  ] +
+                    completedMonthExpenses[
+                      completedMonthExpenses.length / 2
+                    ]) /
+                  2
+                : completedMonthExpenses[
+                    Math.floor(completedMonthExpenses.length / 2)
+                  ]
+              : 0;
+          const vacationSet = new Set(vacationCategories);
+          const vacationExpenses = data.rows
+            .filter((row) => vacationSet.has(row.category))
+            .reduce((sum, row) => sum + (row.total ?? 0), 0);
+          const vacationExpenseShare =
+            (data.totals.total ?? 0) > 0
+              ? (vacationExpenses / (data.totals.total ?? 0)) * 100
+              : 0;
+          const statGroups = [
+            {
+              title: "הכנסות",
+              stats: [
+                ["סה\"כ הכנסות מ-ESPP", formatCurrency(data.totalEsppIncome)],
+                ["סה\"כ הכנסות מ-RSU", formatCurrency(data.totalRsuIncome)],
+                [
+                  "סה\"כ הכנסות שנתיות ללא ESPP ו-RSU",
+                  formatCurrency(data.totalIncomeWithoutEquity),
+                ],
+                [
+                  "ממוצע הכנסות חודשי ללא ESPP ו-RSU",
+                  formatCurrency(monthlyIncome),
+                ],
+                [
+                  "אחוז הכנסות ESPP ו-RSU מסך ההכנסות",
+                  `${equityShare.toFixed(1)}%`,
+                ],
+              ],
+            },
+            {
+              title: "הוצאות וחיסכון",
+              stats: [
+                [
+                  "חציון הוצאות חודשי",
+                  formatCurrency(medianMonthlyExpenses),
+                ],
+                [
+                  "אחוז הוצאות חופשה מסך ההוצאות",
+                  `${vacationExpenseShare.toFixed(1)}%`,
+                ],
+                [
+                  "רווח שנתי ללא ESPP ו-RSU",
+                  formatCurrency(annualProfitWithoutEquity),
+                ],
+                [
+                  "ממוצע רווח חודשי ללא ESPP ו-RSU",
+                  formatCurrency(monthlyIncome - monthlyExpenses),
+                ],
+                [
+                  "שיעור חיסכון ללא ESPP ו-RSU",
+                  `${savingsRateWithoutEquity.toFixed(1)}%`,
+                ],
+              ],
+            },
+          ] as const;
+
+          return (
+            <div className="row gx-5">
+              {statGroups.map(({ title, stats }) => (
+                <div className="col-md-6" key={title}>
+                  <h4 className="small fw-semibold text-muted mb-0 pb-2 border-bottom">
+                    {title}
+                  </h4>
+                  {stats.map(([label, value]) => (
+                    <div
+                      className="d-flex justify-content-between align-items-center gap-3 border-bottom py-3"
+                      key={label}
+                    >
+                      <span className="text-muted">{label}</span>
+                      <span className="fw-semibold flex-shrink-0" dir="ltr">
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

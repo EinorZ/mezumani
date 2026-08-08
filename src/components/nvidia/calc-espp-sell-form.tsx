@@ -1,17 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { calcMarginalIncomeTax } from "@/lib/israeli-tax";
+import { useState, useMemo } from "react";
+import { calcMarginalIncomeTax, calcYasafTax } from "@/lib/israeli-tax";
 import {
   NI_AND_HEALTH_HIGH_RATE,
   NI_MAX_MONTHLY,
-  YASAF_RATE,
-  YASAF_THRESHOLD,
 } from "@/lib/israeli-tax-config";
-import { formatCurrency } from "@/lib/utils";
-import { useYearlyGross } from "@/hooks/use-yearly-gross";
-import { YearlyGrossSection } from "./yearly-gross-section";
+import type { useYearlyGross } from "@/hooks/use-yearly-gross";
 import { TaxSummaryTable } from "./tax-summary-table";
+
+type YearlyGrossState = ReturnType<typeof useYearlyGross>;
 
 function withCommas(val: string): string {
   const raw = val.replace(/[^0-9]/g, "");
@@ -21,22 +19,20 @@ function withCommas(val: string): string {
 
 export function CalcEsppSellForm({
   editData,
+  grossState,
 }: {
   editData: Record<string, unknown>;
+  grossState: YearlyGrossState;
 }) {
   const currentNvdaPrice = editData.currentNvdaPriceUsd as number | undefined;
   const liveUsdRate = editData.usdToIls as number | undefined;
 
-  const grossState = useYearlyGross(
-    (editData.grossSoFar as number) ?? 0,
-    (editData.monthlySalary as number) ?? 0,
-    (editData.esppMonthlyContribution as number) ?? 0,
-    (editData.esppPurchasePrice as number) ?? 0,
-  );
   const purchasePrice = grossState.esppPurchasePrice;
   const setPurchasePrice = grossState.setEsppPurchasePrice;
+  const yearlyGross = grossState.yearlyGross;
+  const esppContribution = grossState.esppContribution;
 
-  const [shares, setShares] = useState("");
+  const [sharesOverride, setSharesOverride] = useState<string | null>(null);
   const [sellPrice, setSellPrice] = useState(
     currentNvdaPrice ? String(currentNvdaPrice) : "",
   );
@@ -44,15 +40,13 @@ export function CalcEsppSellForm({
   const usdRate = liveUsdRate ?? 0;
 
   const defaultShares = useMemo(() => {
-    const mc = parseFloat(grossState.esppContribution);
+    const mc = parseFloat(esppContribution);
     const pp = parseFloat(purchasePrice);
     if (!mc || !pp || !usdRate) return "";
     return String(Math.floor((mc * 6) / (pp * usdRate)));
-  }, [grossState.esppContribution, purchasePrice, usdRate]);
+  }, [esppContribution, purchasePrice, usdRate]);
 
-  useEffect(() => {
-    if (defaultShares) setShares(defaultShares);
-  }, [defaultShares]);
+  const shares = sharesOverride ?? defaultShares;
 
   const result = useMemo(() => {
     const s = parseFloat(shares);
@@ -63,33 +57,38 @@ export function CalcEsppSellForm({
     const proceeds = s * sp * usdRate;
     const cost = s * pp * usdRate;
     const gainIls = proceeds - cost;
-    const incomeTax = calcMarginalIncomeTax(grossState.yearlyGross, gainIls);
+    const incomeTax = calcMarginalIncomeTax(yearlyGross, gainIls);
     const niCeilingIls = NI_MAX_MONTHLY * 12;
-    const niBase = Math.min(grossState.yearlyGross, niCeilingIls);
+    const niBase = Math.min(yearlyGross, niCeilingIls);
     const niAndHealth =
       Math.max(0, Math.min(gainIls, niCeilingIls - niBase)) *
       NI_AND_HEALTH_HIGH_RATE;
-    const yasaf =
-      Math.max(
-        0,
-        Math.min(gainIls, grossState.yearlyGross + gainIls - YASAF_THRESHOLD),
-      ) * YASAF_RATE;
+    const yasaf = calcYasafTax({
+      baseTaxableIncome: yearlyGross,
+      employmentIncome: gainIls,
+      capitalIncome: 0,
+    }).totalTax;
     const totalTax = incomeTax + niAndHealth + yasaf;
     return {
       proceeds,
-      cost: parseFloat(grossState.esppContribution) * 6,
+      cost: parseFloat(esppContribution) * 6,
       incomeTax,
       niAndHealth,
       yasaf,
       totalTax,
       netIls: proceeds - totalTax,
     };
-  }, [shares, purchasePrice, sellPrice, usdRate, grossState.yearlyGross]);
+  }, [
+    shares,
+    purchasePrice,
+    sellPrice,
+    usdRate,
+    yearlyGross,
+    esppContribution,
+  ]);
 
   return (
     <div>
-      <YearlyGrossSection {...grossState} />
-      <hr />
       <div className="row mb-3">
         <div className="col">
           <label className="form-label small">הפרשה חודשית ESPP (₪)</label>
@@ -106,8 +105,7 @@ export function CalcEsppSellForm({
         </div>
         <div className="col">
           <label className="form-label small">
-            מחיר רכישה ($){" "}
-            <span className="text-muted">(עם הנחה)</span>
+            מחיר רכישה ($) <span className="text-muted">(עם הנחה)</span>
           </label>
           <input
             type="number"
@@ -124,7 +122,7 @@ export function CalcEsppSellForm({
           type="number"
           className="form-control"
           value={shares}
-          onChange={(e) => setShares(e.target.value)}
+          onChange={(e) => setSharesOverride(e.target.value)}
           placeholder={defaultShares || ""}
         />
         {defaultShares && (

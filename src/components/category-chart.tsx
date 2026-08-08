@@ -276,8 +276,15 @@ export function CategoryChart({
 
   if (isHorizontal) {
     const sideLegend = (
-      <div style={{ maxHeight: 260, overflowY: "auto" }}>
-        <div className="d-flex flex-column gap-1">
+      <div style={{ minWidth: 250 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            columnGap: 16,
+            rowGap: 6,
+          }}
+        >
           {allData.map((item) => {
             const visibleIdx = visibleData.findIndex(
               (d) => d.name === item.name,

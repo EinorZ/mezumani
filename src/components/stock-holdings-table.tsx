@@ -283,6 +283,9 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
         </span>
         <span style={{ flex: 1 }} className="small">
           {formatCurrency(h.currentPriceILS)}
+          {h.currency === "USD" && h.currentPriceRaw > 0 && (
+            <><br /><span className="text-muted" style={{ fontSize: "0.7rem" }} dir="ltr">${h.currentPriceRaw.toFixed(2)}</span></>
+          )}
         </span>
         <span style={{ flex: 1 }} className="fw-bold small">
           {formatCurrency(h.currentValueILS)}
@@ -324,6 +327,16 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
         const txPnl = txCurrentValue - txCost;
         const txPnlPercent = txCost > 0 ? (txPnl / txCost) * 100 : 0;
         const txPositive = txPnl >= 0;
+
+        // Per-lot YTD: if purchased this year → return since purchase; otherwise → symbol's YTD
+        const txYear = tx.date.split("/")[2] ? 2000 + parseInt(tx.date.split("/")[2], 10) : 0;
+        const currentYear = new Date().getFullYear();
+        const txYtd = h.ytdChangePercent === null
+          ? null
+          : txYear >= currentYear
+            ? (tx.pricePerUnitILS > 0 ? (h.currentPriceILS - tx.pricePerUnitILS) / tx.pricePerUnitILS * 100 : null)
+            : h.ytdChangePercent;
+
         return (
           <div key={i} className="tx-row" style={{ backgroundColor: "#f8f9fa", fontSize: "0.75rem", color: "#555" }}>
             <span style={{ flex: 2, paddingRight: "1.25rem" }}>{tx.date}</span>
@@ -331,7 +344,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
             <span style={{ flex: 0.7 }}>{formatNumber(tx.quantity)}</span>
             <span style={{ flex: 1 }}>{formatCurrency(tx.pricePerUnitILS)}</span>
             <span style={{ flex: 1 }} />
-            <span style={{ flex: 1 }}>{formatCurrency(txCost)}</span>
+            <span style={{ flex: 1 }}>{formatCurrency(txCurrentValue)}</span>
             <span style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }} className="fw-medium text-nowrap">
               <bdi>{txPositive ? "+" : ""}{formatCurrency(Math.abs(txPnl))}</bdi>
               {" "}
@@ -340,11 +353,11 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
               </span>
             </span>
             <span
-              style={{ flex: 0.7, color: h.ytdChangePercent === null ? undefined : h.ytdChangePercent >= 0 ? "#198754" : "#dc3545" }}
+              style={{ flex: 0.7, color: txYtd === null ? undefined : txYtd >= 0 ? "#198754" : "#dc3545" }}
               className="fw-medium"
               dir="ltr"
             >
-              {h.ytdChangePercent === null ? "" : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(2)}%`}
+              {txYtd === null ? "" : `${txYtd >= 0 ? "+" : ""}${txYtd.toFixed(2)}%`}
             </span>
           </div>
         );
@@ -473,6 +486,9 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
               </span>
               <span className="text-muted" style={{ fontSize: "0.7rem" }}>
                 {formatNumber(h.totalShares)} x {formatCurrency(h.currentPriceILS)}
+                {h.currency === "USD" && h.currentPriceRaw > 0 && (
+                  <span dir="ltr"> (${h.currentPriceRaw.toFixed(2)})</span>
+                )}
               </span>
             </div>
             <span className="text-muted" style={{ fontSize: "0.7rem" }}>

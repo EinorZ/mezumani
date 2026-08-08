@@ -72,8 +72,12 @@ export interface AnnualData {
     total: number | null;
   };
   totalIncome: number;
+  totalEsppIncome: number;
+  totalRsuIncome: number;
+  totalIncomeWithoutEquity: number;
   totalSavings: number;
   monthIncome: Record<number, number>;
+  monthIncomeWithoutEquity: Record<number, number>;
   monthAllocations: Record<number, MonthAllocation[]>;
   monthSheetTitles: Record<number, string>;
 }
@@ -127,6 +131,7 @@ export interface AppConfig {
   expenseRenameRules: ExpenseRenameRule[];
   incomeSources: IncomeSource[];
   annualGoals: Record<string, number>;
+  irregularExpenseCategoriesByYear: Record<string, string[]>;
 }
 
 export interface VacationMonthRow {
@@ -207,6 +212,8 @@ export interface StockConfig {
   goals: StockGoal[];
   brokers: BrokerConfig[];
   labelAllocations: LabelAllocation[];
+  /** Cached annual TWR by year, for completed calendar years. year → returnPercent */
+  savedYearReturns: Record<number, number>;
 }
 
 export interface StockHolding {
@@ -219,6 +226,7 @@ export interface StockHolding {
   totalSoldILS: number;
   totalPurchaseFee: number;
   currentPriceILS: number;
+  currentPriceRaw: number;
   currentValueILS: number;
   profitLoss: number;
   profitLossPercent: number;
@@ -297,6 +305,7 @@ export interface PensionFund {
   track: string;
   balance: number;
   lastUpdated: string;
+  company: string;
 }
 
 export interface PensionData {

@@ -195,6 +195,7 @@ export function PensionDashboard({ data }: Props) {
   const [addType, setAddType] = useState<PensionFundType>("פנסיה");
   const [addTrack, setAddTrack] = useState("");
   const [addBalance, setAddBalance] = useState("");
+  const [addCompany, setAddCompany] = useState("");
 
   const einorFunds = funds.filter((f) => f.owner === "עינור");
   const zivFunds = funds.filter((f) => f.owner === "זיו");
@@ -224,7 +225,7 @@ export function PensionDashboard({ data }: Props) {
       )
     );
     startTransition(async () => {
-      await updatePensionFundAction(fund.row, fund.owner, fund.name, fund.type, fund.track, newBalance);
+      await updatePensionFundAction(fund.row, fund.owner, fund.name, fund.type, fund.track, newBalance, fund.company);
     });
   }
 
@@ -241,19 +242,21 @@ export function PensionDashboard({ data }: Props) {
     const balance = parseFloat(addBalance.replace(/,/g, ""));
     if (!name || isNaN(balance) || balance < 0) return;
     const track = addTrack.trim();
+    const company = addCompany.trim();
     const type = addType;
     const today = new Date().toISOString().split("T")[0];
     setShowAddForm(null);
     setAddName("");
     setAddTrack("");
     setAddBalance("");
+    setAddCompany("");
     setAddType("פנסיה");
     setFunds((prev) => [
       ...prev,
-      { row: -Date.now(), owner, name, type, track, balance, lastUpdated: today },
+      { row: -Date.now(), owner, name, type, track, balance, lastUpdated: today, company },
     ]);
     startTransition(async () => {
-      await addPensionFundAction(owner, name, type, track, balance);
+      await addPensionFundAction(owner, name, type, track, balance, company);
       router.refresh();
     });
   }
@@ -357,6 +360,7 @@ export function PensionDashboard({ data }: Props) {
                   setAddName("");
                   setAddTrack("");
                   setAddBalance("");
+                  setAddCompany("");
                   setAddType("פנסיה");
                 }}
               >
@@ -385,6 +389,7 @@ export function PensionDashboard({ data }: Props) {
                         <th className="fw-medium ps-3 py-2" style={{ minWidth: 160 }}>שם הקרן</th>
                         <th className="fw-medium py-2">סוג</th>
                         <th className="fw-medium py-2 d-none d-sm-table-cell">מסלול</th>
+                        <th className="fw-medium py-2 d-none d-sm-table-cell">חברה</th>
                         <th className="fw-medium py-2">יתרה</th>
                         <th className="fw-medium py-2 d-none d-md-table-cell">עדכון</th>
                         <th className="py-2" style={{ width: 36 }}></th>
@@ -420,6 +425,13 @@ export function PensionDashboard({ data }: Props) {
                             <td className="py-3 d-none d-sm-table-cell">
                               {fund.track ? (
                                 <span className="text-muted small">{fund.track}</span>
+                              ) : (
+                                <span className="text-muted" style={{ opacity: 0.3, fontSize: "0.8rem" }}>---</span>
+                              )}
+                            </td>
+                            <td className="py-3 d-none d-sm-table-cell">
+                              {fund.company ? (
+                                <span className="text-muted small">{fund.company}</span>
                               ) : (
                                 <span className="text-muted" style={{ opacity: 0.3, fontSize: "0.8rem" }}>---</span>
                               )}
@@ -483,7 +495,7 @@ export function PensionDashboard({ data }: Props) {
                     {/* Total row */}
                     <tfoot>
                       <tr style={{ borderTop: "2px solid #e9ecef", background: "#f8f9fa" }}>
-                        <td className="ps-3 py-3 fw-semibold" colSpan={3}>
+                        <td className="ps-3 py-3 fw-semibold" colSpan={4}>
                           <span className="d-none d-sm-inline">סה״כ {owner}</span>
                           <span className="d-sm-none">סה״כ</span>
                         </td>
@@ -539,6 +551,16 @@ export function PensionDashboard({ data }: Props) {
                         list="track-options"
                         value={addTrack}
                         onChange={(e) => setAddTrack(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAdd(owner)}
+                      />
+                    </div>
+                    <div className="col-6 col-sm-3 col-md-2">
+                      <label className="form-label small text-muted mb-1">חברה</label>
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="מגדל..."
+                        value={addCompany}
+                        onChange={(e) => setAddCompany(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleAdd(owner)}
                       />
                     </div>

@@ -35,7 +35,8 @@ export function AnnualGoalsTable({ initialGoals, onSave }: Props) {
     const yearNum = parseInt(newYear, 10);
     const amount = Math.max(0, Number(newAmount) || 0);
     if (!amount) return;
-    const year: number | "default" = isNaN(yearNum) ? "default" : yearNum;
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) return;
+    const year: number | "default" = yearNum;
     startTransition(async () => {
       await onSave(year, amount);
       setGoals((prev) => {
@@ -162,6 +163,8 @@ export function AnnualGoalsTable({ initialGoals, onSave }: Props) {
             style={{ width: 100 }}
             value={newYear}
             onChange={(e) => setNewYear(e.target.value)}
+            min={2000}
+            max={2100}
             dir="ltr"
           />
         </div>

@@ -1,8 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   Tooltip,
@@ -24,12 +26,26 @@ function CustomTooltip({
   label,
 }: {
   active?: boolean;
-  payload?: { name: string; value: number; color: string }[];
+  payload?: {
+    name: string;
+    value: number;
+    color: string;
+    dataKey?: string | number;
+    payload?: Record<string, string | number>;
+  }[];
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
 
-  const sorted = [...payload]
+  const sorted = payload
+    .map((entry) => {
+      const key = String(entry.dataKey ?? "");
+      return {
+        ...entry,
+        name: String(entry.payload?.[`${key}Name`] ?? entry.name),
+        color: String(entry.payload?.[`${key}Color`] ?? entry.color),
+      };
+    })
     .filter((p) => p.value > 0)
     .sort((a, b) => b.value - a.value);
   const total = sorted.reduce((sum, p) => sum + p.value, 0);
@@ -66,6 +82,28 @@ function CustomTooltip({
 }
 
 export function MonthlyBarChart({ data, categories, colorMap }: Props) {
+  const rankedData = useMemo(
+    () =>
+      data.map((month) => {
+        const ranked = categories
+          .map((category) => ({
+            category,
+            value: Number(month[category] ?? 0),
+          }))
+          .filter(({ value }) => value > 0)
+          .sort((a, b) => b.value - a.value);
+        const entry: Record<string, string | number> = { name: month.name };
+        ranked.forEach(({ category, value }, rank) => {
+          const key = `stack${rank}`;
+          entry[key] = value;
+          entry[`${key}Name`] = category;
+          entry[`${key}Color`] = colorMap[category] || DEFAULT_COLOR;
+        });
+        return entry;
+      }),
+    [categories, colorMap, data],
+  );
+
   if (data.length === 0) {
     return <p className="text-secondary text-center">אין נתונים</p>;
   }
@@ -73,7 +111,7 @@ export function MonthlyBarChart({ data, categories, colorMap }: Props) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart
-        data={data}
+        data={rankedData}
         margin={{ top: 5, right: 5, bottom: 5, left: -15 }}
         barCategoryGap="15%"
       >
@@ -85,14 +123,23 @@ export function MonthlyBarChart({ data, categories, colorMap }: Props) {
           domain={[0, "auto"]}
         />
         <Tooltip content={<CustomTooltip />} />
-        {categories.map((cat) => (
+        {categories.map((_, rank) => {
+          const key = `stack${rank}`;
+          return (
           <Bar
-            key={cat}
-            dataKey={cat}
+            key={key}
+            dataKey={key}
             stackId="a"
-            fill={colorMap[cat] || DEFAULT_COLOR}
-          />
-        ))}
+          >
+            {rankedData.map((entry, monthIndex) => (
+              <Cell
+                key={`${key}-${monthIndex}`}
+                fill={String(entry[`${key}Color`] ?? DEFAULT_COLOR)}
+              />
+            ))}
+          </Bar>
+          );
+        })}
       </BarChart>
     </ResponsiveContainer>
   );

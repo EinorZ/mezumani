@@ -59,6 +59,7 @@ import {
   setRsuGrossData,
   setAnnualSavingsGoal,
   setAnnualGoalForYear,
+  setIrregularExpenseCategoriesForYear,
 } from "./google-sheets";
 import { HEBREW_MONTHS } from "./constants";
 import {
@@ -306,6 +307,15 @@ export async function setAnnualGoalForYearAction(
   await setAnnualGoalForYear(year, amount);
   revalidatePath("/settings");
   revalidatePath("/");
+  revalidatePath("/year/[year]", "page");
+}
+
+export async function setIrregularExpenseCategoriesForYearAction(
+  year: number,
+  categories: string[],
+) {
+  await setIrregularExpenseCategoriesForYear(year, categories);
+  revalidatePath(`/year/${year % 100}`);
 }
 
 // ---- Income source actions ----
@@ -397,13 +407,26 @@ export async function bulkDeleteTransactions(
 
 export const bulkDeleteVacationTransactions = bulkDeleteTransactions;
 
+// ---- Move to vacation ----
+
+export async function bulkMoveToVacationAction(
+  sourceTitle: string,
+  destTitle: string,
+  rows: number[],
+  transactions: TransactionInput[],
+) {
+  await batchImportTransactions(destTitle, transactions, true);
+  await Promise.all(rows.map((row) => clearTransaction(sourceTitle, row)));
+}
+
 // ---- Batch import ----
 
 export async function addTransactionsBatch(
   sheetTitle: string,
   transactions: TransactionInput[],
+  isVacation = false,
 ): Promise<number> {
-  return batchImportTransactions(sheetTitle, transactions);
+  return batchImportTransactions(sheetTitle, transactions, isVacation);
 }
 
 // ---- Debounced revalidation (called by client) ----
@@ -639,8 +662,72 @@ export async function getPortfolioReturnsAction(
   term?: InvestmentTerm,
 ): Promise<PortfolioReturns> {
   const { getPortfolioHistory, computePortfolioReturns } = await import("./stock-dashboard");
-  const history = await getPortfolioHistory("Max", { downsample: false, term });
-  return computePortfolioReturns(history);
+  const { getStockConfig, saveYearReturns } = await import("./google-sheets");
+
+  const config = await getStockConfig();
+  const { savedYearReturns } = config;
+
+  // Optimal fetch start: cover rolling 3yr periods AND all uncached complete years.
+  // If all years up to (currentYear-1) are cached, only fetch 3yr of data.
+  const currentYear = new Date().getFullYear();
+  const threeYearsAgoDate = new Date();
+  threeYearsAgoDate.setFullYear(threeYearsAgoDate.getFullYear() - 3);
+  const threeYearsAgo = threeYearsAgoDate.toISOString().split("T")[0];
+
+  // Find the earliest complete year not yet cached
+  let earliestUncachedYear: number | null = null;
+  // We look from a reasonable minimum (2015) to avoid fetching too far back
+  for (let y = 2015; y < currentYear; y++) {
+    if (!(y in savedYearReturns)) {
+      earliestUncachedYear = y;
+      break;
+    }
+  }
+
+  // Start date: earlier of (3yr ago) and (Jan 1 of earliest uncached year)
+  let startDate = threeYearsAgo;
+  if (earliestUncachedYear !== null) {
+    const uncachedStart = `${earliestUncachedYear}-01-01`;
+    if (uncachedStart < startDate) startDate = uncachedStart;
+  }
+
+  const history = await getPortfolioHistory("Max", {
+    downsample: false,
+    term,
+    startDateOverride: startDate,
+  });
+
+  const returns = computePortfolioReturns(history, savedYearReturns);
+
+  // Save newly computed complete years — only if we have high-confidence data.
+  // A year qualifies when:
+  // 1. Not already cached (never overwrite existing)
+  // 2. Computed return is non-null
+  // 3. History has ≥200 points within that year (nearly all trading days)
+  // 4. History covers Jan 1–15 AND Nov 1–Dec 31 of that year (full year fetched)
+  const newEntries: Record<number, number> = {};
+  for (const { year, returnPercent } of returns.annual) {
+    if (returnPercent === null) continue;
+    if (year in savedYearReturns) continue; // never overwrite
+
+    // Count points and check coverage
+    const yearPoints = history.filter((p) => p.date.startsWith(`${year}-`));
+    if (yearPoints.length < 200) continue;
+
+    const first = yearPoints[0].date;
+    const last = yearPoints[yearPoints.length - 1].date;
+    const coversStart = first <= `${year}-01-15`;
+    const coversEnd = last >= `${year}-11-01`;
+    if (!coversStart || !coversEnd) continue;
+
+    newEntries[year] = returnPercent;
+  }
+
+  if (Object.keys(newEntries).length > 0) {
+    await saveYearReturns({ ...savedYearReturns, ...newEntries });
+  }
+
+  return returns;
 }
 
 // ──────────────────────────────────────────
@@ -738,9 +825,10 @@ export async function addPensionFundAction(
   type: PensionFundType,
   track: string,
   balance: number,
+  company: string,
 ) {
   const date = new Date().toISOString().split("T")[0];
-  await addPensionFund(owner, name, type, track, balance, date);
+  await addPensionFund(owner, name, type, track, balance, date, company);
   revalidatePath("/pension");
 }
 
@@ -751,9 +839,10 @@ export async function updatePensionFundAction(
   type: PensionFundType,
   track: string,
   balance: number,
+  company: string,
 ) {
   const date = new Date().toISOString().split("T")[0];
-  await updatePensionFund(row, owner, name, type, track, balance, date);
+  await updatePensionFund(row, owner, name, type, track, balance, date, company);
   revalidatePath("/pension");
 }
 

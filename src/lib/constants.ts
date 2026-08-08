@@ -30,6 +30,8 @@ export const SETTINGS_RANGE_RENAME_RULE_KEYWORDS = "M2:M100";
 export const SETTINGS_RANGE_INCOME_NAMES = "N2:N100";
 export const SETTINGS_RANGE_INCOME_DATA = "O2:O100";
 export const SETTINGS_RANGE_ANNUAL_GOAL = "P2:P100";
+export const SETTINGS_RANGE_IRREGULAR_EXPENSE_YEARS = "Q2:Q100";
+export const SETTINGS_RANGE_IRREGULAR_EXPENSE_CATEGORIES = "R2:R100";
 
 export const DEFAULT_CATEGORY_COLOR = "#6c757d";
 
@@ -46,11 +48,15 @@ export const SETTINGS_RANGE_BROKER_NAMES = "I2:I100";
 export const SETTINGS_RANGE_BROKER_MGMT_FEES = "J2:J100";
 export const SETTINGS_RANGE_BROKER_PURCHASE_FEES = "K2:K100";
 
-// Label allocation target percentages (columns L-N in stocks הגדרות sheet)
+// Label allocation target percentages (columns L-O in stocks הגדרות sheet)
 export const SETTINGS_RANGE_ALLOC_LABELS = "L2:L100";
 export const SETTINGS_RANGE_ALLOC_PERCENTS = "M2:M100";
 export const SETTINGS_RANGE_ALLOC_STOCKS = "N2:N100";
 export const SETTINGS_RANGE_ALLOC_COLORS = "O2:O100";
+
+// Cached annual portfolio returns (columns P-Q in stocks הגדרות sheet)
+export const SETTINGS_RANGE_YEAR_RETURN_YEARS = "P2:P100";
+export const SETTINGS_RANGE_YEAR_RETURN_PERCENTS = "Q2:Q100";
 
 export const STOCKS_SHEET_NAME = "מניות";
 

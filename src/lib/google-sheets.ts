@@ -47,6 +47,8 @@ import {
   SETTINGS_RANGE_INCOME_NAMES,
   SETTINGS_RANGE_INCOME_DATA,
   SETTINGS_RANGE_ANNUAL_GOAL,
+  SETTINGS_RANGE_IRREGULAR_EXPENSE_YEARS,
+  SETTINGS_RANGE_IRREGULAR_EXPENSE_CATEGORIES,
   SETTINGS_RANGE_STOCK_SYMBOLS,
   SETTINGS_RANGE_STOCK_NAMES,
   SETTINGS_RANGE_STOCK_SOURCES,
@@ -62,6 +64,8 @@ import {
   SETTINGS_RANGE_ALLOC_PERCENTS,
   SETTINGS_RANGE_ALLOC_STOCKS,
   SETTINGS_RANGE_ALLOC_COLORS,
+  SETTINGS_RANGE_YEAR_RETURN_YEARS,
+  SETTINGS_RANGE_YEAR_RETURN_PERCENTS,
   STOCKS_SHEET_NAME,
   STOCK_SHEET_HEADERS,
   DEFAULT_CATEGORY_COLOR,
@@ -350,10 +354,14 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
   const monthData = new Map<number, Map<string, number>>();
   const allCategories = new Set<string>();
   const monthIncomeMap = new Map<number, number>();
+  const monthIncomeWithoutEquityMap = new Map<number, number>();
   const monthAllocationsMap = new Map<number, MonthAllocation[]>();
   const monthSheetTitlesMap = new Map<number, string>();
 
   let totalIncome = 0;
+  let totalEsppIncome = 0;
+  let totalRsuIncome = 0;
+  let totalIncomeWithoutEquity = 0;
 
   for (let i = 0; i < monthlySheets.length; i++) {
     // Skip months not marked as done
@@ -380,15 +388,23 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     // Parse income for this month
     const rawIncome = valueRanges[i * 4 + 1]?.values ?? [];
     let monthIncome = 0;
+    let monthIncomeWithoutEquity = 0;
     for (const row of rawIncome.slice(1)) {
       const name = row[0]?.trim() ?? "";
       const amount = parseNumber(row[1]);
       if (name && amount) {
         totalIncome += amount;
+        if (/\bESPP\b/i.test(name)) totalEsppIncome += amount;
+        if (/\bRSU\b/i.test(name)) totalRsuIncome += amount;
+        if (!/\b(?:ESPP|RSU)\b/i.test(name)) {
+          totalIncomeWithoutEquity += amount;
+          monthIncomeWithoutEquity += amount;
+        }
         monthIncome += amount;
       }
     }
     monthIncomeMap.set(monthIndex, monthIncome);
+    monthIncomeWithoutEquityMap.set(monthIndex, monthIncomeWithoutEquity);
 
     // Parse allocations K1:L10
     const rawAllocations = valueRanges[i * 4 + 3]?.values ?? [];
@@ -452,8 +468,12 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     rows,
     totals,
     totalIncome,
+    totalEsppIncome,
+    totalRsuIncome,
+    totalIncomeWithoutEquity,
     totalSavings,
     monthIncome: Object.fromEntries(monthIncomeMap),
+    monthIncomeWithoutEquity: Object.fromEntries(monthIncomeWithoutEquityMap),
     monthAllocations: Object.fromEntries(monthAllocationsMap),
     monthSheetTitles: Object.fromEntries(monthSheetTitlesMap),
   };
@@ -552,6 +572,7 @@ export async function batchImportTransactions(
     notes: string;
     updateExisting?: boolean;
   }[],
+  isVacation = false,
 ): Promise<number> {
   if (transactions.length === 0) return 0;
   const sheets = getSheets();
@@ -602,14 +623,9 @@ export async function batchImportTransactions(
   const appendRows: string[][] = [];
 
   for (const data of transactions) {
-    const values = [
-      data.date,
-      data.expense,
-      String(data.amount),
-      data.category,
-      data.card,
-      data.notes,
-    ];
+    const values = isVacation
+      ? [data.date, data.expense, String(data.amount), data.card, data.category, data.notes]
+      : [data.date, data.expense, String(data.amount), data.category, data.card, data.notes];
     const existingRow = data.updateExisting
       ? findExistingRow(data.expense, data.card)
       : undefined;
@@ -816,6 +832,7 @@ export async function createMonthSheet(
       expenseRenameRules: [],
       incomeSources: [],
       annualGoals: {},
+      irregularExpenseCategoriesByYear: {},
     };
   }
   const categoryValues = config.monthlyCategories.map((c) => c.name);
@@ -1150,6 +1167,8 @@ export async function getAppConfig(): Promise<AppConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_NAMES}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_INCOME_DATA}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ANNUAL_GOAL}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_IRREGULAR_EXPENSE_YEARS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_IRREGULAR_EXPENSE_CATEGORIES}`,
     ],
   });
 
@@ -1270,6 +1289,22 @@ export async function getAppConfig(): Promise<AppConfig> {
     }
   }
 
+  const irregularYearRows = (valueRanges[16]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const irregularCategoryRows = (valueRanges[17]?.values ?? []).map(
+    (row) => row[0]?.trim() ?? "",
+  );
+  const irregularExpenseCategoriesByYear: Record<string, string[]> = {};
+  for (let i = 0; i < irregularYearRows.length; i++) {
+    const year = irregularYearRows[i];
+    if (!/^\d{4}$/.test(year)) continue;
+    irregularExpenseCategoriesByYear[year] = (irregularCategoryRows[i] ?? "")
+      .split(",")
+      .map((category: string) => category.trim())
+      .filter(Boolean);
+  }
+
   return {
     monthlyCategories: extractCategories(0),
     vacationCategories: extractCategories(1),
@@ -1282,7 +1317,45 @@ export async function getAppConfig(): Promise<AppConfig> {
     expenseRenameRules,
     incomeSources,
     annualGoals,
+    irregularExpenseCategoriesByYear,
   };
+}
+
+export async function setIrregularExpenseCategoriesForYear(
+  year: number,
+  categories: string[],
+): Promise<void> {
+  const sheets = getSheets();
+  const range = `'${SETTINGS_SHEET_NAME}'!Q2:R100`;
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range,
+  });
+  const rows = res.data.values ?? [];
+  let targetRowIndex = rows.findIndex(
+    (row) => String(row[0] ?? "").trim() === String(year),
+  );
+  if (targetRowIndex < 0) {
+    targetRowIndex = rows.findIndex((row) => !String(row[0] ?? "").trim());
+  }
+  if (targetRowIndex < 0) targetRowIndex = rows.length;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!Q1:R1`,
+          values: [["שנת קטגוריות לנרמול", "קטגוריות לנרמול"]],
+        },
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!Q${targetRowIndex + 2}:R${targetRowIndex + 2}`,
+          values: [[String(year), categories.join(",")]],
+        },
+      ],
+    },
+  });
 }
 
 /**
@@ -1307,9 +1380,15 @@ export async function setAnnualGoalForYear(
     const cell = rows[i]?.[0]?.trim() ?? "";
     if (!cell) continue;
     if (year === "default") {
-      if (!cell.includes(":")) { targetRowIdx = i; break; }
+      if (!cell.includes(":")) {
+        targetRowIdx = i;
+        break;
+      }
     } else {
-      if (cell.startsWith(`${year}:`)) { targetRowIdx = i; break; }
+      if (cell.startsWith(`${year}:`)) {
+        targetRowIdx = i;
+        break;
+      }
     }
   }
 
@@ -1325,7 +1404,9 @@ export async function setAnnualGoalForYear(
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `'${SETTINGS_SHEET_NAME}'!P${targetRowIdx + 2}`,
-      valueInputOption: "USER_ENTERED",
+      // Keep values such as "2026:4000" as literal text. USER_ENTERED lets
+      // Google Sheets interpret them as a date/time and corrupt the year.
+      valueInputOption: "RAW",
       requestBody: { values: [[newValue]] },
     });
   } else if (newValue) {
@@ -1334,7 +1415,7 @@ export async function setAnnualGoalForYear(
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `'${SETTINGS_SHEET_NAME}'!P${nextRow}`,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       requestBody: { values: [[newValue]] },
     });
   }
@@ -1918,6 +1999,7 @@ export async function createVacationSheet(
       expenseRenameRules: [],
       incomeSources: [],
       annualGoals: {},
+      irregularExpenseCategoriesByYear: {},
     };
   }
 
@@ -2233,6 +2315,8 @@ export async function getStockConfig(): Promise<StockConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_PERCENTS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_STOCKS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ALLOC_COLORS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_YEAR_RETURN_YEARS}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_YEAR_RETURN_PERCENTS}`,
     ],
   });
 
@@ -2295,7 +2379,55 @@ export async function getStockConfig(): Promise<StockConfig> {
     color: (allocColors[i] && allocColors[i] !== "#000000") ? allocColors[i] : undefined,
   }));
 
-  return { stocks, goals, brokers, labelAllocations };
+  // Parse cached annual returns (P-Q columns)
+  const yearReturnYears = extract(15);
+  const yearReturnPercents = extractAligned(16, yearReturnYears.length);
+  const savedYearReturns: Record<number, number> = {};
+  for (let i = 0; i < yearReturnYears.length; i++) {
+    const yr = parseInt(yearReturnYears[i], 10);
+    const pct = parseFloat(yearReturnPercents[i]);
+    if (!isNaN(yr) && !isNaN(pct)) {
+      savedYearReturns[yr] = pct;
+    }
+  }
+
+  return { stocks, goals, brokers, labelAllocations, savedYearReturns };
+}
+
+/**
+ * Persist annual portfolio TWR results to the stocks settings sheet (columns P-Q).
+ * Writes ALL saved years at once (replaces the entire P-Q range).
+ * Called only after verifying that the computed returns are reliable.
+ */
+export async function saveYearReturns(yearReturns: Record<number, number>): Promise<void> {
+  const sheets = getSheets();
+  const sorted = Object.entries(yearReturns)
+    .map(([yr, pct]) => [parseInt(yr, 10), pct] as [number, number])
+    .sort(([a], [b]) => a - b);
+
+  // Build two parallel columns: years in P, percents in Q
+  const yearValues = sorted.map(([yr]) => [String(yr)]);
+  const pctValues = sorted.map(([, pct]) => [String(pct)]);
+
+  // Pad to 99 rows (P2:P100 / Q2:Q100) to clear any old data beyond the current count
+  while (yearValues.length < 99) { yearValues.push([""]); pctValues.push([""]); }
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_YEAR_RETURN_YEARS}`,
+          values: yearValues,
+        },
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_YEAR_RETURN_PERCENTS}`,
+          values: pctValues,
+        },
+      ],
+    },
+  });
 }
 
 // ---- Generic settings CRUD helpers ----

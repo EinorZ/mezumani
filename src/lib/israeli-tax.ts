@@ -13,9 +13,53 @@ import {
   HEALTH_HIGH_RATE,
   CAPITAL_GAINS_RATE,
   MATURATION_MONTHS,
-  YASAF_RATE,
+  YASAF_GENERAL_RATE,
+  YASAF_CAPITAL_RATE,
   YASAF_THRESHOLD,
 } from "./israeli-tax-config";
+
+/** Calculate the marginal surtax caused by an additional transaction. */
+export function calcYasafTax(params: {
+  baseTaxableIncome: number;
+  employmentIncome: number;
+  capitalIncome: number;
+  baseCapitalIncome?: number;
+}): { generalTax: number; capitalTax: number; totalTax: number } {
+  const {
+    baseTaxableIncome,
+    employmentIncome,
+    capitalIncome,
+    baseCapitalIncome = 0,
+  } = params;
+  const additionalTaxableIncome = Math.max(0, employmentIncome + capitalIncome);
+  const generalBefore = Math.max(0, baseTaxableIncome - YASAF_THRESHOLD);
+  const generalAfter = Math.max(
+    0,
+    baseTaxableIncome + additionalTaxableIncome - YASAF_THRESHOLD,
+  );
+  const generalTax = (generalAfter - generalBefore) * YASAF_GENERAL_RATE;
+
+  const capitalBefore = Math.max(0, baseCapitalIncome - YASAF_THRESHOLD);
+  const capitalAfter = Math.max(
+    0,
+    baseCapitalIncome + Math.max(0, capitalIncome) - YASAF_THRESHOLD,
+  );
+  const capitalTax = (capitalAfter - capitalBefore) * YASAF_CAPITAL_RATE;
+
+  return { generalTax, capitalTax, totalTax: generalTax + capitalTax };
+}
+
+/** Calculate the full annual surtax liability across all income sources. */
+export function calcAnnualYasafTax(params: {
+  employmentIncome: number;
+  capitalIncome: number;
+}): { generalTax: number; capitalTax: number; totalTax: number } {
+  return calcYasafTax({
+    baseTaxableIncome: 0,
+    employmentIncome: Math.max(0, params.employmentIncome),
+    capitalIncome: Math.max(0, params.capitalIncome),
+  });
+}
 
 /**
  * Calculate progressive income tax on a given annual amount,
@@ -32,10 +76,14 @@ export function calcIncomeTaxBrackets(
 
   for (const bracket of INCOME_TAX_BRACKETS) {
     if (remaining <= 0) break;
-    if (prev >= bracket.upTo) { prev = bracket.upTo; continue; }
+    if (prev >= bracket.upTo) {
+      prev = bracket.upTo;
+      continue;
+    }
     const available = bracket.upTo - prev;
     const taxable = Math.min(remaining, available);
-    if (taxable > 0) result.push({ rate: bracket.rate, tax: taxable * bracket.rate });
+    if (taxable > 0)
+      result.push({ rate: bracket.rate, tax: taxable * bracket.rate });
     remaining -= taxable;
     prev = bracket.upTo;
   }
@@ -72,7 +120,10 @@ function calcMonthlyNI(baseMonthly: number, additionalMonthly: number): number {
   function niOn(monthly: number): number {
     if (monthly <= 0) return 0;
     const low = Math.min(monthly, NI_THRESHOLD_MONTHLY);
-    const high = Math.min(Math.max(monthly - NI_THRESHOLD_MONTHLY, 0), NI_MAX_MONTHLY - NI_THRESHOLD_MONTHLY);
+    const high = Math.min(
+      Math.max(monthly - NI_THRESHOLD_MONTHLY, 0),
+      NI_MAX_MONTHLY - NI_THRESHOLD_MONTHLY,
+    );
     return low * NI_LOW_RATE + high * NI_HIGH_RATE;
   }
 
@@ -83,11 +134,17 @@ function calcMonthlyNI(baseMonthly: number, additionalMonthly: number): number {
 /**
  * Calculate Health Tax on additional monthly income.
  */
-function calcMonthlyHealthTax(baseMonthly: number, additionalMonthly: number): number {
+function calcMonthlyHealthTax(
+  baseMonthly: number,
+  additionalMonthly: number,
+): number {
   function healthOn(monthly: number): number {
     if (monthly <= 0) return 0;
     const low = Math.min(monthly, NI_THRESHOLD_MONTHLY);
-    const high = Math.min(Math.max(monthly - NI_THRESHOLD_MONTHLY, 0), NI_MAX_MONTHLY - NI_THRESHOLD_MONTHLY);
+    const high = Math.min(
+      Math.max(monthly - NI_THRESHOLD_MONTHLY, 0),
+      NI_MAX_MONTHLY - NI_THRESHOLD_MONTHLY,
+    );
     return low * HEALTH_LOW_RATE + high * HEALTH_HIGH_RATE;
   }
 
@@ -102,7 +159,12 @@ function calcMonthlyHealthTax(baseMonthly: number, additionalMonthly: number): n
 export function calcMarginalTax(
   yearlyGross: number,
   additionalIncome: number,
-): { incomeTax: number; nationalInsurance: number; healthTax: number; total: number } {
+): {
+  incomeTax: number;
+  nationalInsurance: number;
+  healthTax: number;
+  total: number;
+} {
   const incomeTax = calcMarginalIncomeTax(yearlyGross, additionalIncome);
 
   // For NI/health, approximate the monthly base
@@ -119,7 +181,6 @@ export function calcMarginalTax(
   };
 }
 
-
 /**
  * Check if a sell date is after the Section 102 maturation period (2 years from grant).
  * After maturation: entire gain taxed at 25% only (capital gains track).
@@ -135,8 +196,16 @@ function isAfterMaturation(grantDate: string, sellDate: string): boolean {
   if (gYear < 100) gYear += 2000;
   if (sYear < 100) sYear += 2000;
 
-  const grant = new Date(gYear, parseInt(gParts[1], 10) - 1, parseInt(gParts[0], 10));
-  const sell = new Date(sYear, parseInt(sParts[1], 10) - 1, parseInt(sParts[0], 10));
+  const grant = new Date(
+    gYear,
+    parseInt(gParts[1], 10) - 1,
+    parseInt(gParts[0], 10),
+  );
+  const sell = new Date(
+    sYear,
+    parseInt(sParts[1], 10) - 1,
+    parseInt(sParts[0], 10),
+  );
 
   const maturationDate = new Date(grant);
   maturationDate.setMonth(maturationDate.getMonth() + MATURATION_MONTHS);
@@ -171,15 +240,29 @@ export function calcRsuNet(params: {
   netIls: number;
   matured: boolean;
 } {
-  const { shares, vestPriceUsd, usdRate, feesIls, yearlyGross, sellPriceUsd, grantDate, sellDate } = params;
+  const {
+    shares,
+    vestPriceUsd,
+    usdRate,
+    feesIls,
+    yearlyGross,
+    sellPriceUsd,
+    grantDate,
+    sellDate,
+  } = params;
 
   const vestIncomeIls = shares * vestPriceUsd * usdRate;
-  const matured = !!(grantDate && sellDate && isAfterMaturation(grantDate, sellDate));
+  const matured = !!(
+    grantDate &&
+    sellDate &&
+    isAfterMaturation(grantDate, sellDate)
+  );
 
   // Determine sell proceeds
-  const proceeds = sellPriceUsd !== undefined
-    ? shares * sellPriceUsd * usdRate
-    : vestIncomeIls;
+  const proceeds =
+    sellPriceUsd !== undefined
+      ? shares * sellPriceUsd * usdRate
+      : vestIncomeIls;
 
   let marginal: ReturnType<typeof calcMarginalTax>;
   let capitalGainsTax = 0;
@@ -199,10 +282,24 @@ export function calcRsuNet(params: {
     marginal = calcMarginalTax(yearlyGross, totalIncome);
   }
 
-  const incomeForYasaf = matured ? vestIncomeIls : (sellPriceUsd !== undefined ? proceeds : vestIncomeIls);
-  const yasafTax = Math.max(0, Math.min(incomeForYasaf, yearlyGross + incomeForYasaf - YASAF_THRESHOLD)) * YASAF_RATE;
+  const employmentIncome = matured
+    ? vestIncomeIls
+    : sellPriceUsd !== undefined
+      ? proceeds
+      : vestIncomeIls;
+  const capitalIncome = matured ? Math.max(0, proceeds - vestIncomeIls) : 0;
+  const yasafTax = calcYasafTax({
+    baseTaxableIncome: yearlyGross,
+    employmentIncome,
+    capitalIncome,
+  }).totalTax;
 
-  const totalTax = marginal.incomeTax + marginal.nationalInsurance + marginal.healthTax + capitalGainsTax + yasafTax;
+  const totalTax =
+    marginal.incomeTax +
+    marginal.nationalInsurance +
+    marginal.healthTax +
+    capitalGainsTax +
+    yasafTax;
   const netIls = proceeds - totalTax - feesIls;
 
   return {
@@ -247,12 +344,25 @@ export function calcEsppNet(params: {
   matured: boolean;
 } {
   const {
-    shares, marketPriceUsd, purchasePriceUsd, contributionUsd,
-    usdRate, feesIls, yearlyGross, sellPriceUsd, grantDate, sellDate,
+    shares,
+    marketPriceUsd,
+    purchasePriceUsd,
+    contributionUsd,
+    usdRate,
+    feesIls,
+    yearlyGross,
+    sellPriceUsd,
+    grantDate,
+    sellDate,
   } = params;
 
-  const discountIncomeIls = (marketPriceUsd - purchasePriceUsd) * shares * usdRate;
-  const matured = !!(grantDate && sellDate && isAfterMaturation(grantDate, sellDate));
+  const discountIncomeIls =
+    (marketPriceUsd - purchasePriceUsd) * shares * usdRate;
+  const matured = !!(
+    grantDate &&
+    sellDate &&
+    isAfterMaturation(grantDate, sellDate)
+  );
 
   const proceeds = shares * (sellPriceUsd ?? marketPriceUsd) * usdRate;
   const costIls = contributionUsd * usdRate;
@@ -287,7 +397,11 @@ export function calcEsppNet(params: {
     }
   }
 
-  const totalTax = marginal.incomeTax + marginal.nationalInsurance + marginal.healthTax + capitalGainsTax;
+  const totalTax =
+    marginal.incomeTax +
+    marginal.nationalInsurance +
+    marginal.healthTax +
+    capitalGainsTax;
   const netIls = proceeds - costIls - totalTax - feesIls;
 
   return {

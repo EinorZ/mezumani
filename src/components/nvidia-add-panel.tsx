@@ -4,14 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { AddRsuGrantForm } from "@/components/nvidia/add-rsu-grant-form";
 import { EditRsuForm } from "@/components/nvidia/edit-rsu-form";
-import { CalcRsuSellForm } from "@/components/nvidia/calc-rsu-sell-form";
-import { CalcEsppSellForm } from "@/components/nvidia/calc-espp-sell-form";
+import { CombinedSellCalculator } from "@/components/nvidia/combined-sell-calculator";
 
-export type NvidiaPanelMode =
-  | "addRsuGrant"
-  | "editRsu"
-  | "calcRsuSell"
-  | "calcEsppSell";
+export type NvidiaPanelMode = "addRsuGrant" | "editRsu" | "calcSell";
 
 interface Props {
   mode: NvidiaPanelMode;
@@ -22,11 +17,10 @@ interface Props {
 const PANEL_TITLES: Record<NvidiaPanelMode, string> = {
   addRsuGrant: "הוסף מענק RSU",
   editRsu: "ערוך שורת RSU",
-  calcRsuSell: "מחשבון מכירת RSU",
-  calcEsppSell: "מחשבון מכירת ESPP",
+  calcSell: "מחשבון מכירה",
 };
 
-const CALC_MODES: NvidiaPanelMode[] = ["calcRsuSell", "calcEsppSell"];
+const CALC_MODES: NvidiaPanelMode[] = ["calcSell"];
 
 export function NvidiaAddPanel({ mode, editData = {}, onClose }: Props) {
   const [_submitting, setSubmitting] = useState(false);
@@ -53,7 +47,10 @@ export function NvidiaAddPanel({ mode, editData = {}, onClose }: Props) {
         <div className="alert alert-success py-2 small mb-3">נשמר בהצלחה!</div>
       )}
       {mode === "addRsuGrant" && (
-        <AddRsuGrantForm onSubmitting={setSubmitting} onSuccess={handleSuccess} />
+        <AddRsuGrantForm
+          onSubmitting={setSubmitting}
+          onSuccess={handleSuccess}
+        />
       )}
       {mode === "editRsu" && (
         <EditRsuForm
@@ -62,8 +59,7 @@ export function NvidiaAddPanel({ mode, editData = {}, onClose }: Props) {
           onSuccess={handleSuccess}
         />
       )}
-      {mode === "calcRsuSell" && <CalcRsuSellForm editData={editData} />}
-      {mode === "calcEsppSell" && <CalcEsppSellForm editData={editData} />}
+      {mode === "calcSell" && <CombinedSellCalculator editData={editData} />}
     </>
   );
 
@@ -139,4 +135,3 @@ export function NvidiaAddPanel({ mode, editData = {}, onClose }: Props) {
     </>
   );
 }
-

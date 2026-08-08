@@ -6,8 +6,8 @@ const PENSION_SPREADSHEET_ID = process.env.GOOGLE_STOCKS_SPREADSHEET_ID!;
 
 export const PENSION_SHEET_NAME = "חיסכון";
 
-// Columns: A=Owner, B=Name, C=Type, D=Track, E=Balance, F=LastUpdated
-const PENSION_HEADERS = ["בעלים", "שם הקרן", "סוג", "מסלול", "יתרה", "עדכון אחרון"];
+// Columns: A=Owner, B=Name, C=Type, D=Track, E=Balance, F=LastUpdated, G=Company
+const PENSION_HEADERS = ["בעלים", "שם הקרן", "סוג", "מסלול", "יתרה", "עדכון אחרון", "חברה"];
 const HISTORY_SHEET_NAME = "היסטוריית חיסכון";
 
 function getAuth() {
@@ -60,7 +60,7 @@ export async function ensurePensionSheet(): Promise<void> {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: PENSION_SPREADSHEET_ID,
-    range: `'${PENSION_SHEET_NAME}'!A1:F1`,
+    range: `'${PENSION_SHEET_NAME}'!A1:G1`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [PENSION_HEADERS] },
   });
@@ -86,7 +86,7 @@ export async function getPensionFunds(): Promise<PensionFund[]> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: PENSION_SPREADSHEET_ID,
-    range: `'${PENSION_SHEET_NAME}'!A2:F`,
+    range: `'${PENSION_SHEET_NAME}'!A2:G`,
   });
   const rows = res.data.values ?? [];
   return rows
@@ -98,6 +98,7 @@ export async function getPensionFunds(): Promise<PensionFund[]> {
       track: row[3] ?? "",
       balance: parseNumber(row[4]),
       lastUpdated: row[5] ?? "",
+      company: row[6] ?? "",
     }))
     .filter((f) => f.name);
 }
@@ -123,14 +124,15 @@ export async function addPensionFund(
   track: string,
   balance: number,
   date: string,
+  company: string,
 ): Promise<number> {
   const sheets = getSheets();
   const row = await findLastRow();
   await sheets.spreadsheets.values.update({
     spreadsheetId: PENSION_SPREADSHEET_ID,
-    range: `'${PENSION_SHEET_NAME}'!A${row}:F${row}`,
+    range: `'${PENSION_SHEET_NAME}'!A${row}:G${row}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date]] },
+    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date, company]] },
   });
   return row;
 }
@@ -143,13 +145,14 @@ export async function updatePensionFund(
   track: string,
   balance: number,
   date: string,
+  company: string,
 ): Promise<void> {
   const sheets = getSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId: PENSION_SPREADSHEET_ID,
-    range: `'${PENSION_SHEET_NAME}'!A${row}:F${row}`,
+    range: `'${PENSION_SHEET_NAME}'!A${row}:G${row}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date]] },
+    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date, company]] },
   });
 }
 

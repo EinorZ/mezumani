@@ -136,6 +136,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
                 <ExcelImportButton
                   sheetTitle={title}
                   pagePath={`/month/${id}`}
+                  vacationSheets={vacationSheets}
                 />
               </div>
               <TransactionTable
@@ -143,6 +144,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
                 sheetTitle={title}
                 pagePath={`/month/${id}`}
                 vacationRows={vacationRows}
+                vacationSheets={vacationSheets}
               />
             </div>
           </div>

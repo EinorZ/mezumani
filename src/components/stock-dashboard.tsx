@@ -28,7 +28,6 @@ import { StockPieChart, type ChartMode } from "@/components/stock-pie-chart";
 import { LabelAllocationChart } from "@/components/label-allocation-chart";
 import { StockAddPanel } from "@/components/stock-add-panel";
 import { RebalanceCalculator } from "@/components/rebalance-calculator";
-import { PortfolioChart } from "@/components/portfolio-chart";
 import { StockAnnualStats } from "@/components/stock-annual-stats";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { usePageRefresh } from "@/hooks/use-page-refresh";
@@ -358,9 +357,8 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       />
 
       {/* Collapsible performance section */}
-      {(initialChartData || portfolioReturns) && (
-        <div className="card rounded-3 border mt-4 overflow-hidden">
-          <div
+      <div className="card rounded-3 border mt-4 overflow-hidden">
+        <div
             className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
             style={{ cursor: "pointer" }}
             onClick={() => setPerfOpen((v) => !v)}
@@ -375,22 +373,13 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
           </div>
           {perfOpen && (
             <div className="p-3">
-              {perfChartData.length > 0 && (
-                <PortfolioChart
-                  key={viewTerm}
-                  initialData={perfChartData}
-                  initialRange={perfChartRange.current}
-                  term={viewTerm === "all" ? undefined : viewTerm}
-                />
-              )}
               {perfReturns && <StockAnnualStats returns={perfReturns} />}
-              {!perfLoading && perfChartData.length === 0 && !perfReturns && (
+              {!perfLoading && !perfReturns && (
                 <div className="text-center text-muted small py-3">אין נתונים להצגה</div>
               )}
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Slide-out panel */}
       {panelOpen && (

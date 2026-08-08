@@ -15,11 +15,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import type {
-  NvidiaCompensationData,
-  RsuGrant,
-  RsuVest,
-} from "@/lib/types";
+import type { NvidiaCompensationData, RsuGrant, RsuVest } from "@/lib/types";
 import {
   isFutureDate,
   isMatured,
@@ -39,17 +35,22 @@ function formatUsd(amount: number): string {
   return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-
 export function NvidiaDashboard({ data }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelMode, setPanelMode] = useState<NvidiaPanelMode>("addRsuGrant");
-  const [panelEditData, setPanelEditData] = useState<Record<string, unknown>>({});
+  const [panelEditData, setPanelEditData] = useState<Record<string, unknown>>(
+    {},
+  );
   const [expandedGrants, setExpandedGrants] = useState<Set<string>>(new Set());
   const { refreshing, handleRefresh } = usePageRefresh("/nvidia");
 
-  const { grants, currentNvdaPriceUsd, usdToIls, usdToIlsError, summary } = data;
+  const { grants, currentNvdaPriceUsd, usdToIls, usdToIlsError, summary } =
+    data;
 
-  function openPanel(mode: NvidiaPanelMode, editData?: Record<string, unknown>) {
+  function openPanel(
+    mode: NvidiaPanelMode,
+    editData?: Record<string, unknown>,
+  ) {
     setPanelMode(mode);
     setPanelEditData(editData ?? {});
     setPanelOpen(true);
@@ -65,7 +66,9 @@ export function NvidiaDashboard({ data }: Props) {
   }
 
   const lastUpdatedDate = new Date(data.lastUpdated);
-  const minutesAgo = Math.floor((Date.now() - lastUpdatedDate.getTime()) / 60000);
+  const minutesAgo = Math.floor(
+    (Date.now() - lastUpdatedDate.getTime()) / 60000,
+  );
 
   return (
     <>
@@ -96,17 +99,20 @@ export function NvidiaDashboard({ data }: Props) {
         <div className="d-flex gap-2 align-items-center">
           <button
             className="btn btn-outline-info btn-sm"
-            onClick={() => openPanel("calcRsuSell", { currentNvdaPriceUsd, usdToIls, grossSoFar: data.grossSoFar, monthlySalary: data.monthlySalary, esppMonthlyContribution: data.esppMonthlyContribution, grants: data.grants })}
+            onClick={() =>
+              openPanel("calcSell", {
+                currentNvdaPriceUsd,
+                usdToIls,
+                grossSoFar: data.grossSoFar,
+                monthlySalary: data.monthlySalary,
+                esppMonthlyContribution: data.esppMonthlyContribution,
+                esppPurchasePrice: data.esppPurchasePrice,
+                grants: data.grants,
+              })
+            }
           >
             <Calculator size={14} className="me-1" />
-            מחשבון RSU
-          </button>
-          <button
-            className="btn btn-outline-info btn-sm"
-            onClick={() => openPanel("calcEsppSell", { currentNvdaPriceUsd, usdToIls, grossSoFar: data.grossSoFar, monthlySalary: data.monthlySalary, esppMonthlyContribution: data.esppMonthlyContribution, esppPurchasePrice: data.esppPurchasePrice })}
-          >
-            <Calculator size={14} className="me-1" />
-            מחשבון ESPP
+            מחשבון מכירה
           </button>
           <button
             className="btn btn-outline-secondary btn-sm"
@@ -166,7 +172,9 @@ export function NvidiaDashboard({ data }: Props) {
         expandedGrants={expandedGrants}
         onToggleGrant={toggleGrant}
         onAddGrant={() => openPanel("addRsuGrant")}
-        onEditVest={(vest) => openPanel("editRsu", vest as unknown as Record<string, unknown>)}
+        onEditVest={(vest) =>
+          openPanel("editRsu", vest as unknown as Record<string, unknown>)
+        }
       />
 
       {/* Add Panel */}
@@ -225,9 +233,10 @@ function RsuSection({
 
       {grants.map((grant) => {
         const isExpanded = expandedGrants.has(grant.grantDate);
-        const progressPct = grant.totalShares > 0
-          ? ((grant.vestedShares) / grant.totalShares) * 100
-          : 0;
+        const progressPct =
+          grant.totalShares > 0
+            ? (grant.vestedShares / grant.totalShares) * 100
+            : 0;
         const matured = isMatured(grant.grantDate);
         const matDate = getMaturationDate(grant.grantDate);
 
@@ -241,7 +250,7 @@ function RsuSection({
               <div>
                 <strong>{grant.grantName || `מענק ${grant.grantDate}`}</strong>
                 <span className="text-muted ms-2">
-                  {'·'} {grant.totalShares} מניות
+                  {"·"} {grant.totalShares} מניות
                 </span>
                 {matured ? (
                   <span className="badge bg-success ms-2">הובשל!</span>
@@ -251,7 +260,11 @@ function RsuSection({
                   </span>
                 ) : null}
                 {grant.vests[0]?.vestPriceUsd != null && (
-                  <span className="text-muted ms-2" dir="ltr" style={{ fontSize: "0.85em" }}>
+                  <span
+                    className="text-muted ms-2"
+                    dir="ltr"
+                    style={{ fontSize: "0.85em" }}
+                  >
                     מחיר הענקה: {formatUsd(grant.vests[0].vestPriceUsd)}
                   </span>
                 )}
@@ -268,7 +281,11 @@ function RsuSection({
                     {grant.vestedShares}/{grant.totalShares} vested
                   </small>
                 </div>
-                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                {isExpanded ? (
+                  <ChevronUp size={16} />
+                ) : (
+                  <ChevronDown size={16} />
+                )}
               </div>
             </div>
 
@@ -286,51 +303,75 @@ function RsuSection({
                       </tr>
                     </thead>
                     <tbody>
-                      {grant.vests.filter((vest) => vest.shares > 0).map((vest) => {
-                        const currentValueIls = vest.shares * currentPrice * usdToIls;
-                        const isSold = vest.sold;
-                        const isVested = !isFutureDate(vest.vestDate);
-                        const vestComingSoon = !isVested && isVestComingSoon(vest.vestDate);
+                      {grant.vests
+                        .filter((vest) => vest.shares > 0)
+                        .map((vest) => {
+                          const currentValueIls =
+                            vest.shares * currentPrice * usdToIls;
+                          const isSold = vest.sold;
+                          const isVested = !isFutureDate(vest.vestDate);
+                          const vestComingSoon =
+                            !isVested && isVestComingSoon(vest.vestDate);
 
-                        return (
-                          <tr key={vest.row} className={isSold ? "text-muted" : ""}>
-                            <td>{vest.vestDate}</td>
-                            <td>{vest.shares}</td>
-                            <td>
-                              {isSold ? (
-                                <span className="badge bg-secondary">נמכר</span>
-                              ) : isVested ? (
-                                <span className="badge bg-success">vested</span>
-                              ) : vestComingSoon ? (
-                                <span className="badge" style={{ background: "#e9d5ff", color: "#6b21a8" }}>בקרוב</span>
-                              ) : (
-                                <span className="badge bg-warning text-dark">ממתין</span>
-                              )}
-                            </td>
-                            <td dir="ltr">
-                              {!isSold && formatCurrency(currentValueIls)}
-                            </td>
-                            <td>
-                              <button
-                                className={`btn btn-sm me-1 ${isSold ? "btn-outline-success" : "btn-outline-secondary"}`}
-                                onClick={async () => {
-                                  await toggleRsuSoldAction(vest.row, !isSold);
-                                }}
-                                title={isSold ? "סמן כלא נמכר" : "סמן כנמכר"}
-                              >
-                                <Tag size={12} />
-                              </button>
-                              <button
-                                className="btn btn-outline-primary btn-sm me-1"
-                                onClick={() => onEditVest(vest)}
-                                title="ערוך"
-                              >
-                                <Pencil size={12} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                          return (
+                            <tr
+                              key={vest.row}
+                              className={isSold ? "text-muted" : ""}
+                            >
+                              <td>{vest.vestDate}</td>
+                              <td>{vest.shares}</td>
+                              <td>
+                                {isSold ? (
+                                  <span className="badge bg-secondary">
+                                    נמכר
+                                  </span>
+                                ) : isVested ? (
+                                  <span className="badge bg-success">
+                                    vested
+                                  </span>
+                                ) : vestComingSoon ? (
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: "#e9d5ff",
+                                      color: "#6b21a8",
+                                    }}
+                                  >
+                                    בקרוב
+                                  </span>
+                                ) : (
+                                  <span className="badge bg-warning text-dark">
+                                    ממתין
+                                  </span>
+                                )}
+                              </td>
+                              <td dir="ltr">
+                                {!isSold && formatCurrency(currentValueIls)}
+                              </td>
+                              <td>
+                                <button
+                                  className={`btn btn-sm me-1 ${isSold ? "btn-outline-success" : "btn-outline-secondary"}`}
+                                  onClick={async () => {
+                                    await toggleRsuSoldAction(
+                                      vest.row,
+                                      !isSold,
+                                    );
+                                  }}
+                                  title={isSold ? "סמן כלא נמכר" : "סמן כנמכר"}
+                                >
+                                  <Tag size={12} />
+                                </button>
+                                <button
+                                  className="btn btn-outline-primary btn-sm me-1"
+                                  onClick={() => onEditVest(vest)}
+                                  title="ערוך"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>

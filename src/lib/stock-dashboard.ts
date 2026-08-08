@@ -252,6 +252,7 @@ function computeHolding(
     totalSoldILS,
     totalPurchaseFee,
     currentPriceILS,
+    currentPriceRaw,
     currentValueILS,
     profitLoss,
     profitLossPercent,
@@ -315,7 +316,7 @@ function computePeriod1(range: ChartRange, transactions: StockTransaction[]): st
 
 export async function getPortfolioHistory(
   range: ChartRange,
-  { downsample = true, term }: { downsample?: boolean; term?: InvestmentTerm } = {},
+  { downsample = true, term, startDateOverride }: { downsample?: boolean; term?: InvestmentTerm; startDateOverride?: string } = {},
 ): Promise<PortfolioHistoryPoint[]> {
   const [config, transactions] = await Promise.all([
     getStockConfig(),
@@ -325,7 +326,10 @@ export async function getPortfolioHistory(
   const filteredTransactions = term ? transactions.filter((t) => t.term === term) : transactions;
   if (filteredTransactions.length === 0) return [];
 
-  const period1 = computePeriod1(range, filteredTransactions);
+  const rawPeriod1 = startDateOverride ?? computePeriod1(range, filteredTransactions);
+  // Never fetch before the first transaction — portfolio has no value before then
+  const firstTxIso = computePeriod1("Max", filteredTransactions);
+  const period1 = rawPeriod1 < firstTxIso ? firstTxIso : rawPeriod1;
   const period2 = new Date().toISOString().split("T")[0];
 
   // Only fetch prices for stocks present in the filtered transactions
@@ -508,9 +512,11 @@ function dateYearsAgo(years: number): string {
 
 export function computePortfolioReturns(
   history: PortfolioHistoryPoint[],
+  savedYearReturns: Record<number, number> = {},
 ): PortfolioReturns {
   const empty: PortfolioReturns = {
-    daily: null, mtd: null, ytd: null, periods: [], annual: [],
+    daily: null, mtd: null, ytd: null, periods: [],
+    annual: Object.entries(savedYearReturns).map(([yr, pct]) => ({ year: Number(yr), returnPercent: pct })).sort((a, b) => a.year - b.year),
   };
   if (history.length < 2) return empty;
 
@@ -550,12 +556,22 @@ export function computePortfolioReturns(
     returnPercent: returnSince(date),
   }));
 
-  // Annual returns: for each calendar year in the data (including current partial year)
-  const firstYear = parseInt(history[0].date.substring(0, 4), 10);
+  // Annual returns: compute from history for years covered, fill gaps from savedYearReturns
+  const historyFirstYear = parseInt(history[0].date.substring(0, 4), 10);
   const currentYear = parseInt(today.substring(0, 4), 10);
-  const annual: { year: number; returnPercent: number | null }[] = [];
 
-  for (let y = firstYear; y < currentYear; y++) {
+  // Determine all years to show: union of history years and saved years
+  const savedYears = Object.keys(savedYearReturns).map(Number);
+  const firstYear = Math.min(historyFirstYear, ...savedYears, currentYear);
+  const annualMap = new Map<number, number | null>();
+
+  // Seed with saved values
+  for (const [yr, pct] of Object.entries(savedYearReturns)) {
+    annualMap.set(Number(yr), pct);
+  }
+
+  // Compute from history — overrides saved values for years we actually fetched
+  for (let y = historyFirstYear; y < currentYear; y++) {
     const yearStart = `${y}-01-01`;
     const yearEnd = `${y}-12-31`;
     const startIdx = findIndexAt(history, yearStart);
@@ -564,9 +580,14 @@ export function computePortfolioReturns(
       : history.findIndex((p) => p.date >= yearStart);
     const endIdx = findIndexAt(history, yearEnd);
     if (effectiveStart >= 0 && endIdx > effectiveStart) {
-      annual.push({ year: y, returnPercent: twrForSlice(history, effectiveStart, endIdx) });
+      annualMap.set(y, twrForSlice(history, effectiveStart, endIdx));
     }
   }
+
+  const annual = Array.from(annualMap.entries())
+    .filter(([y]) => y >= firstYear && y < currentYear)
+    .map(([year, returnPercent]) => ({ year, returnPercent }))
+    .sort((a, b) => a.year - b.year);
 
   return { daily, mtd, ytd, periods, annual };
 }

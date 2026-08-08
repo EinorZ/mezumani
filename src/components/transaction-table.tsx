@@ -24,10 +24,14 @@ import {
   bulkDeleteVacationTransactions,
   bulkToggleTentative,
   bulkToggleVacationTentative,
+  bulkMoveToVacationAction,
+  revalidatePageAction,
 } from "@/lib/actions";
 import type {
   Transaction,
   VacationMonthRow,
+  SheetInfo,
+  TransactionInput,
 } from "@/lib/types";
 import { usePageConfig } from "@/contexts/page-config-context";
 import { useOptimisticTransactions } from "@/hooks/use-optimistic-transactions";
@@ -41,6 +45,7 @@ interface Props {
   pagePath: string;
   isVacation?: boolean;
   vacationRows?: VacationMonthRow[];
+  vacationSheets?: SheetInfo[];
 }
 
 const emptyForm = {
@@ -110,11 +115,17 @@ function formatDateDisplay(date: string): string {
   return date.replace(/\//g, ".");
 }
 
-/** Parse day input — supports "14" (day only) or "14.02" / "14/02" (day.month override) */
+/** Parse day input — supports "14", "14.02", "14.02.26", "14.02.2026" */
 function buildDate(dayInput: string, sheetMonth: string): string {
   const trimmed = dayInput.trim();
   if (!trimmed) return "";
-  // Check if user typed XX.YY or XX/YY
+  // DD.MM.YYYY or DD.MM.YY (with year)
+  const matchWithYear = trimmed.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (matchWithYear) {
+    const yr = matchWithYear[3].length === 4 ? matchWithYear[3].slice(-2) : matchWithYear[3];
+    return `${matchWithYear[1]}/${matchWithYear[2]}/${yr}`;
+  }
+  // DD.MM or DD/MM
   const match = trimmed.match(/^(\d{1,2})[./](\d{1,2})$/);
   if (match) {
     return `${match[1]}/${match[2]}`;
@@ -129,6 +140,7 @@ export function TransactionTable({
   pagePath,
   isVacation,
   vacationRows,
+  vacationSheets,
 }: Props) {
   const {
     allCards: cards,
@@ -150,6 +162,7 @@ export function TransactionTable({
   const [showFilters, setShowFilters] = useState(false);
   const [showMobileAdd, setShowMobileAdd] = useState(false);
   const [mobileAddForm, setMobileAddForm] = useState(defaultAddForm);
+  const [bulkVacationDest, setBulkVacationDest] = useState("");
 
   // Ref for the edit row element to detect outside clicks
   const editRowRef = useRef<HTMLDivElement>(null);
@@ -239,7 +252,7 @@ export function TransactionTable({
     if (!addForm.expense.trim() && !addForm.amount.trim()) return;
     const date = buildDate(addForm.day, sheetMonth);
     const amount = evalMathExpr(addForm.amount);
-    const category = addForm.category || lookupCategoryMapping(addForm.expense) || "";
+    const category = addForm.category || (!isVacation && lookupCategoryMapping(addForm.expense)) || "";
     const card = addForm.card || lastCardRef.current;
     if (card) lastCardRef.current = card;
     setAddForm({ ...defaultAddForm, card });
@@ -259,7 +272,7 @@ export function TransactionTable({
     if (!mobileAddForm.expense.trim() && !mobileAddForm.amount.trim()) return;
     const date = buildDate(mobileAddForm.day, sheetMonth);
     const amount = evalMathExpr(mobileAddForm.amount);
-    const category = mobileAddForm.category || lookupCategoryMapping(mobileAddForm.expense) || "";
+    const category = mobileAddForm.category || (!isVacation && lookupCategoryMapping(mobileAddForm.expense)) || "";
     const card = mobileAddForm.card || lastCardRef.current;
     if (card) lastCardRef.current = card;
     setMobileAddForm({ ...defaultAddForm, card });
@@ -278,7 +291,7 @@ export function TransactionTable({
   function handleEdit(row: number) {
     const date = buildDate(editForm.day, sheetMonth);
     const amount = evalMathExpr(editForm.amount);
-    const category = editForm.category || lookupCategoryMapping(editForm.expense) || "";
+    const category = editForm.category || (!isVacation && lookupCategoryMapping(editForm.expense)) || "";
     setEditingRow(null);
     optimistic.handleEdit(row, {
       date,
@@ -353,6 +366,39 @@ export function TransactionTable({
         optimistic.onInflightDone();
         optimistic.revertBulkEdits(rows);
         setError(e instanceof Error ? e.message : "שגיאה בעדכון משוער");
+      });
+  }
+
+  function handleBulkMoveToVacation() {
+    if (selectedRows.size === 0 || !bulkVacationDest) return;
+    const rows = [...selectedRows];
+    const txData: TransactionInput[] = rows
+      .map((row) => filteredRows.find((t) => t.row === row))
+      .filter((t): t is Transaction => !!t)
+      .map((t) => ({
+        date: t.date,
+        expense: t.expense,
+        amount: t.amount,
+        category: t.category,
+        card: t.card,
+        notes: "",
+      }));
+
+    optimistic.applyBulkDeletes(rows);
+    clearSelection();
+
+    const vs = vacationSheets?.find((s) => s.title === bulkVacationDest);
+    optimistic.inflightRef.current++;
+    bulkMoveToVacationAction(sheetTitle, bulkVacationDest, rows, txData)
+      .then(() => {
+        optimistic.onInflightDone();
+        revalidatePageAction(pagePath);
+        if (vs) revalidatePageAction(`/vacation/${vs.sheetId}`);
+      })
+      .catch((e) => {
+        optimistic.onInflightDone();
+        optimistic.revertBulkDeletes(rows);
+        setError(e instanceof Error ? e.message : "שגיאה בהעברה לטיול");
       });
   }
 
@@ -492,7 +538,7 @@ export function TransactionTable({
             value={form.expense}
             onChange={(e) => setForm({ ...form, expense: e.target.value })}
             onBlur={(e) => {
-              if (!form.category) {
+              if (!form.category && !isVacation) {
                 const mapped = lookupCategoryMapping(e.target.value);
                 if (mapped) setForm({ ...form, category: mapped });
               }
@@ -914,6 +960,28 @@ export function TransactionTable({
           >
             ביטול ~
           </button>
+          {!isVacation && vacationSheets && vacationSheets.length > 0 && (
+            <>
+              <select
+                className="form-select form-select-sm"
+                style={{ maxWidth: 130 }}
+                value={bulkVacationDest}
+                onChange={(e) => setBulkVacationDest(e.target.value)}
+              >
+                <option value="">✈ טיול...</option>
+                {vacationSheets.map((vs) => (
+                  <option key={vs.sheetId} value={vs.title}>{vs.title}</option>
+                ))}
+              </select>
+              <button
+                className="btn btn-sm btn-outline-info"
+                onClick={handleBulkMoveToVacation}
+                disabled={!bulkVacationDest}
+              >
+                העבר
+              </button>
+            </>
+          )}
           <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
             מחק
           </button>
@@ -962,7 +1030,7 @@ export function TransactionTable({
                 value={mobileAddForm.expense}
                 onChange={(e) => setMobileAddForm({ ...mobileAddForm, expense: e.target.value })}
                 onBlur={(e) => {
-                  if (!mobileAddForm.category) {
+                  if (!mobileAddForm.category && !isVacation) {
                     const mapped = lookupCategoryMapping(e.target.value);
                     if (mapped) setMobileAddForm({ ...mobileAddForm, category: mapped });
                   }

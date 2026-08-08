@@ -1,14 +1,20 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { calcRsuNet } from "@/lib/israeli-tax";
+import { calcMarginalTax, calcRsuNet, calcYasafTax } from "@/lib/israeli-tax";
 import { MATURATION_MONTHS } from "@/lib/israeli-tax-config";
 import { formatCurrency } from "@/lib/utils";
-import { toSheetDate, isFutureDate, isMatured, isVestComingSoon } from "@/lib/nvidia-utils";
-import { useYearlyGross } from "@/hooks/use-yearly-gross";
+import {
+  toSheetDate,
+  isFutureDate,
+  isMatured,
+  isVestComingSoon,
+} from "@/lib/nvidia-utils";
+import type { useYearlyGross } from "@/hooks/use-yearly-gross";
 import type { RsuGrant } from "@/lib/types";
-import { YearlyGrossSection } from "./yearly-gross-section";
 import { TaxSummaryTable, type TaxBreakdown } from "./tax-summary-table";
+
+type YearlyGrossState = ReturnType<typeof useYearlyGross>;
 
 function getTodayStr(): string {
   const d = new Date();
@@ -17,12 +23,18 @@ function getTodayStr(): string {
 
 export function CalcRsuSellForm({
   editData,
+  grossState,
 }: {
   editData: Record<string, unknown>;
+  grossState: YearlyGrossState;
 }) {
   const defaultPrice = editData.currentNvdaPriceUsd as number | undefined;
   const defaultRate = editData.usdToIls as number | undefined;
-  const grants = (editData.grants ?? []) as RsuGrant[];
+  const grants = useMemo(
+    () => (editData.grants ?? []) as RsuGrant[],
+    [editData.grants],
+  );
+  const { yearlyGross } = grossState;
 
   const availableVests = useMemo(() => {
     function isGrantMaturationComingSoon(grantDate: string): boolean {
@@ -66,8 +78,7 @@ export function CalcRsuSellForm({
       ...vests.filter((v) => !v.future && v.matured),
       ...vests.filter((v) => !v.future && !v.matured && !v.comingSoon),
       ...vests.filter(
-        (v) =>
-          (!v.future && !v.matured && v.comingSoon) || v.vestComingSoon,
+        (v) => (!v.future && !v.matured && v.comingSoon) || v.vestComingSoon,
       ),
       ...vests.filter((v) => v.future && !v.vestComingSoon),
     ];
@@ -78,18 +89,13 @@ export function CalcRsuSellForm({
     defaultPrice ? String(defaultPrice) : "",
   );
   const usdRate = String(defaultRate ?? "");
-  const grossState = useYearlyGross(
-    (editData.grossSoFar as number) ?? 0,
-    (editData.monthlySalary as number) ?? 0,
-    (editData.esppMonthlyContribution as number) ?? 0,
-    0,
-  );
   const sellDate = getTodayStr();
 
   function toggleRow(row: number) {
     setSelectedRows((prev) => {
       const next = new Set(prev);
-      next.has(row) ? next.delete(row) : next.add(row);
+      if (next.has(row)) next.delete(row);
+      else next.add(row);
       return next;
     });
   }
@@ -118,6 +124,8 @@ export function CalcRsuSellForm({
       yasaf: number;
       tax: number;
       net: number;
+      employmentIncome: number;
+      capitalIncome: number;
     };
     const zero = (): Agg => ({
       proceeds: 0,
@@ -128,7 +136,58 @@ export function CalcRsuSellForm({
       yasaf: 0,
       tax: 0,
       net: 0,
+      employmentIncome: 0,
+      capitalIncome: 0,
     });
+    const applyAggregateYasaf = (first: Agg, second: Agg | null) => {
+      const groups = second ? [first, second] : [first];
+      const employmentIncome = groups.reduce(
+        (sum, group) => sum + group.employmentIncome,
+        0,
+      );
+      const capitalIncome = groups.reduce(
+        (sum, group) => sum + group.capitalIncome,
+        0,
+      );
+      const yasaf = calcYasafTax({
+        baseTaxableIncome: yearlyGross,
+        employmentIncome,
+        capitalIncome,
+      });
+      const totalIncome = employmentIncome + capitalIncome;
+
+      for (const group of groups) {
+        const groupIncome = group.employmentIncome + group.capitalIncome;
+        const generalShare =
+          totalIncome > 0 ? yasaf.generalTax * (groupIncome / totalIncome) : 0;
+        const capitalShare =
+          capitalIncome > 0
+            ? yasaf.capitalTax * (group.capitalIncome / capitalIncome)
+            : 0;
+        group.yasaf = generalShare + capitalShare;
+        group.tax += group.yasaf;
+        group.net -= group.yasaf;
+      }
+    };
+    const applyAggregateEmploymentTax = (first: Agg, second: Agg | null) => {
+      const groups = second ? [first, second] : [first];
+      const employmentIncome = groups.reduce(
+        (sum, group) => sum + group.employmentIncome,
+        0,
+      );
+      const marginal = calcMarginalTax(yearlyGross, employmentIncome);
+
+      for (const group of groups) {
+        const share =
+          employmentIncome > 0 ? group.employmentIncome / employmentIncome : 0;
+        group.incomeTax = marginal.incomeTax * share;
+        group.ni = marginal.nationalInsurance * share;
+        group.healthTax = marginal.healthTax * share;
+        const employmentTax = group.incomeTax + group.ni + group.healthTax;
+        group.tax += employmentTax;
+        group.net -= employmentTax;
+      }
+    };
     const maturedAgg = zero();
     const unmaturedAgg = zero();
 
@@ -139,21 +198,25 @@ export function CalcRsuSellForm({
         vestPriceUsd: vestPrice,
         usdRate: rate,
         feesIls: 0,
-        yearlyGross: grossState.yearlyGross,
+        yearlyGross,
         sellPriceUsd: sp,
         grantDate: vest.matured ? vest.grantDate : undefined,
         sellDate: vest.matured ? toSheetDate(sellDate) : undefined,
       });
       const agg = vest.matured ? maturedAgg : unmaturedAgg;
-      agg.proceeds += vest.shares * sp * rate;
-      agg.incomeTax += r.incomeTax;
-      agg.ni += r.nationalInsurance;
-      agg.healthTax += r.healthTax;
+      const vestProceeds = vest.shares * sp * rate;
+      agg.proceeds += vestProceeds;
       agg.capGains += r.capitalGainsTax;
-      agg.yasaf += r.yasafTax;
-      agg.tax += r.totalTax;
-      agg.net += r.netIls;
+      agg.tax += r.capitalGainsTax;
+      agg.net += vestProceeds - r.capitalGainsTax;
+      agg.employmentIncome += vest.matured ? r.vestIncomeIls : vestProceeds;
+      agg.capitalIncome += vest.matured
+        ? Math.max(0, vestProceeds - r.vestIncomeIls)
+        : 0;
     }
+
+    applyAggregateEmploymentTax(maturedAgg, unmaturedAgg);
+    applyAggregateYasaf(maturedAgg, unmaturedAgg);
 
     const anyMatured = maturedAgg.proceeds > 0;
     const anyUnmatured = unmaturedAgg.proceeds > 0;
@@ -166,6 +229,9 @@ export function CalcRsuSellForm({
       yasaf: maturedAgg.yasaf + unmaturedAgg.yasaf,
       tax: maturedAgg.tax + unmaturedAgg.tax,
       net: maturedAgg.net + unmaturedAgg.net,
+      employmentIncome:
+        maturedAgg.employmentIncome + unmaturedAgg.employmentIncome,
+      capitalIncome: maturedAgg.capitalIncome + unmaturedAgg.capitalIncome,
     };
 
     let latestMatDate: Date | null = null;
@@ -206,20 +272,21 @@ export function CalcRsuSellForm({
           vestPriceUsd: vestPrice,
           usdRate: rate,
           feesIls: 0,
-          yearlyGross: grossState.yearlyGross,
+          yearlyGross,
           sellPriceUsd: sp,
           grantDate: vest.grantDate,
           sellDate: waitSellDate,
         });
-        waitAgg.proceeds += vest.shares * sp * rate;
-        waitAgg.incomeTax += r.incomeTax;
-        waitAgg.ni += r.nationalInsurance;
-        waitAgg.healthTax += r.healthTax;
+        const vestProceeds = vest.shares * sp * rate;
+        waitAgg.proceeds += vestProceeds;
         waitAgg.capGains += r.capitalGainsTax;
-        waitAgg.yasaf += r.yasafTax;
-        waitAgg.tax += r.totalTax;
-        waitAgg.net += r.netIls;
+        waitAgg.tax += r.capitalGainsTax;
+        waitAgg.net += vestProceeds - r.capitalGainsTax;
+        waitAgg.employmentIncome += r.vestIncomeIls;
+        waitAgg.capitalIncome += Math.max(0, vestProceeds - r.vestIncomeIls);
       }
+      applyAggregateEmploymentTax(waitAgg, null);
+      applyAggregateYasaf(waitAgg, null);
       waitScenario = { agg: waitAgg, date: waitSellDate, dateDisplay };
     }
 
@@ -231,7 +298,7 @@ export function CalcRsuSellForm({
       anyUnmatured,
       waitScenario,
     };
-  }, [selectedVests, sellPrice, usdRate, grossState.yearlyGross, sellDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedVests, sellPrice, usdRate, yearlyGross, sellDate]);
 
   const toBreakdown = (a: {
     proceeds: number;
@@ -254,9 +321,6 @@ export function CalcRsuSellForm({
 
   return (
     <div>
-      <YearlyGrossSection {...grossState} />
-      <hr />
-
       {availableVests.length > 0 ? (
         <div className="mb-3">
           <div className="d-flex justify-content-between align-items-center mb-1">
@@ -403,9 +467,7 @@ export function CalcRsuSellForm({
           {selectedVests.length > 0 && (
             <div className="small text-muted mt-1">
               {selectedVests.length} vests ·{" "}
-              {selectedVests
-                .reduce((s, v) => s + v.shares, 0)
-                .toLocaleString()}{" "}
+              {selectedVests.reduce((s, v) => s + v.shares, 0).toLocaleString()}{" "}
               מניות
             </div>
           )}

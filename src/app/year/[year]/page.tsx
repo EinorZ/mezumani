@@ -22,6 +22,23 @@ export default async function YearPage({ params }: YearPageProps) {
   const vacationCategories = ["חול", "חופשה"];
 
   const fullYear = 2000 + yearSuffix;
+  const hasSavedIrregularCategories = Object.prototype.hasOwnProperty.call(
+    config.irregularExpenseCategoriesByYear,
+    String(fullYear),
+  );
+  const savedIrregularCategories =
+    config.irregularExpenseCategoriesByYear[String(fullYear)];
+  const previousIrregularYear = Object.keys(
+    config.irregularExpenseCategoriesByYear,
+  )
+    .map(Number)
+    .filter((candidateYear) => candidateYear < fullYear)
+    .sort((a, b) => b - a)[0];
+  const initialIrregularCategories =
+    savedIrregularCategories ??
+    (previousIrregularYear
+      ? config.irregularExpenseCategoriesByYear[String(previousIrregularYear)]
+      : vacationCategories);
   const goalForYear =
     config.annualGoals[String(fullYear)] ??
     config.annualGoals["default"] ??
@@ -35,6 +52,8 @@ export default async function YearPage({ params }: YearPageProps) {
       vacationCategories={vacationCategories}
       yearSuffix={yearSuffix}
       annualSavingsGoal={goalForYear}
+      initialIrregularCategories={initialIrregularCategories}
+      hasSavedIrregularCategories={hasSavedIrregularCategories}
     />
   );
 }

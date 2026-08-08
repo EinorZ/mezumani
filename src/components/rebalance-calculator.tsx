@@ -26,6 +26,10 @@ function formatNum(n: number): string {
 export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Props) {
   const [open, setOpen] = useState(false);
 
+  const rawPriceBySymbol = Object.fromEntries(
+    holdings.map((h) => [h.symbol, { raw: h.currentPriceRaw, currency: h.currency }])
+  );
+
   const {
     allLabels,
     allocations,
@@ -293,11 +297,18 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
                                 dir="ltr"
                               >
                                 {selectedStocks[row.label]}
-                                {row.stockPrice > 0 && (
-                                  <span className="text-muted ms-1">
-                                    ({formatCurrency(row.stockPrice)}/unit)
-                                  </span>
-                                )}
+                                {row.stockPrice > 0 && (() => {
+                                  const info = rawPriceBySymbol[selectedStocks[row.label]];
+                                  return (
+                                    <span className="text-muted ms-1">
+                                      ({formatCurrency(row.stockPrice)}/unit
+                                      {info?.currency === "USD" && info.raw > 0 && (
+                                        <span> · ${info.raw.toFixed(2)}</span>
+                                      )}
+                                      )
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             )}
                             <div
