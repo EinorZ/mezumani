@@ -3,12 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { HEBREW_MONTHS } from "@/lib/constants";
-import { formatCurrency, formatCurrencyCompact, getSummaryCardIcon } from "@/lib/utils";
+import {
+  formatCurrency,
+  formatCurrencyCompact,
+  getSummaryCardIcon,
+} from "@/lib/utils";
 import type { AnnualData } from "@/lib/types";
 import { MultiSearchableSelect } from "@/components/multi-searchable-select";
 import { ChevronDown, ChevronUp, Target } from "lucide-react";
 import { MonthAllocationsPanel } from "@/components/month-allocations-panel";
 import { setIrregularExpenseCategoriesForYearAction } from "@/lib/actions";
+import {
+  buildAnnualExpenseView,
+  type AnnualExpenseView,
+} from "@/lib/annual-expense-view";
 
 const MonthlyBarChart = dynamic(
   () => import("@/components/monthly-bar-chart").then((m) => m.MonthlyBarChart),
@@ -19,7 +27,8 @@ const CategoryChart = dynamic(
   { ssr: false },
 );
 const CategorySparkline = dynamic(
-  () => import("@/components/category-sparkline").then((m) => m.CategorySparkline),
+  () =>
+    import("@/components/category-sparkline").then((m) => m.CategorySparkline),
   { ssr: false },
 );
 
@@ -44,13 +53,14 @@ export function AnnualDashboard({
   initialIrregularCategories,
   hasSavedIrregularCategories,
 }: Props) {
-  const [expenseView, setExpenseView] = useState<
-    "all" | "normalized"
-  >("all");
+  const [expenseView, setExpenseView] = useState<AnnualExpenseView>("all");
   const [categoryDetailsOpen, setCategoryDetailsOpen] = useState(false);
-  const [excludeCategories, setExcludeCategories] = useState<Set<string>>(
+  const [normalizedCategories, setNormalizedCategories] = useState<Set<string>>(
     new Set(initialIrregularCategories),
   );
+  const [filteredOutCategories, setFilteredOutCategories] = useState<
+    Set<string>
+  >(new Set());
 
   useEffect(() => {
     if (!hasSavedIrregularCategories) {
@@ -59,82 +69,17 @@ export function AnnualDashboard({
         initialIrregularCategories,
       );
     }
-  }, [
-    hasSavedIrregularCategories,
-    initialIrregularCategories,
-    yearSuffix,
-  ]);
+  }, [hasSavedIrregularCategories, initialIrregularCategories, yearSuffix]);
 
-  const filteredData = useMemo<AnnualData>(() => {
-    const completedMonths = data.totals.months
-      .map((amount, monthIndex) => (amount !== null ? monthIndex : null))
-      .filter((monthIndex): monthIndex is number => monthIndex !== null);
-    const filteredRows = data.rows
-      .filter(
-        (row) => row.category,
-      )
-      .map((row) => {
-        if (
-          expenseView !== "normalized" ||
-          !excludeCategories.has(row.category) ||
-          completedMonths.length === 0
-        ) {
-          return row;
-        }
-
-        const monthlyAverage = (row.total ?? 0) / completedMonths.length;
-        return {
-          ...row,
-          months: data.totals.months.map((amount) =>
-            amount !== null ? monthlyAverage : null,
-          ),
-          average: monthlyAverage,
-        };
-      });
-
-    const grandTotal = filteredRows.reduce((sum, r) => sum + (r.total ?? 0), 0);
-
-    const rowsWithPercentage = filteredRows.map((row) => ({
-      ...row,
-      percentage:
-        grandTotal > 0 && row.total ? (row.total / grandTotal) * 100 : null,
-    }));
-
-    const monthTotals: (number | null)[] = Array.from(
-      { length: 12 },
-      (_, i) => {
-        const sum = filteredRows.reduce(
-          (acc, r) => acc + (r.months[i] ?? 0),
-          0,
-        );
-        return sum || null;
-      },
-    );
-
-    const nonNullMonths = monthTotals.filter((v) => v !== null);
-    const totalSum = nonNullMonths.reduce((a, b) => a + (b ?? 0), 0);
-    const average =
-      nonNullMonths.length > 0 ? totalSum / nonNullMonths.length : null;
-
-    return {
-      year: data.year,
-      rows: rowsWithPercentage,
-      totals: {
-        months: monthTotals,
-        average,
-        total: totalSum || null,
-      },
-      totalIncome: data.totalIncome,
-      totalEsppIncome: data.totalEsppIncome,
-      totalRsuIncome: data.totalRsuIncome,
-      totalIncomeWithoutEquity: data.totalIncomeWithoutEquity,
-      totalSavings: data.totalSavings,
-      monthIncome: data.monthIncome,
-      monthIncomeWithoutEquity: data.monthIncomeWithoutEquity,
-      monthAllocations: data.monthAllocations,
-      monthSheetTitles: data.monthSheetTitles,
-    };
-  }, [data, excludeCategories, expenseView]);
+  const filteredData = useMemo<AnnualData>(
+    () =>
+      buildAnnualExpenseView(data, {
+        view: expenseView,
+        normalizedCategories,
+        filteredOutCategories,
+      }),
+    [data, expenseView, filteredOutCategories, normalizedCategories],
+  );
 
   const categoryBreakdown = useMemo(
     () =>
@@ -144,20 +89,6 @@ export function AnnualDashboard({
         .sort((a, b) => b.amount - a.amount),
     [filteredData],
   );
-
-  const { totalWithoutVacations, avgWithoutVacations } = useMemo(() => {
-    const vacationSet = new Set(vacationCategories);
-    const nonVacationRows = filteredData.rows.filter(
-      (r) => !vacationSet.has(r.category),
-    );
-    const total = nonVacationRows.reduce((sum, r) => sum + (r.total ?? 0), 0);
-    const monthTotals = Array.from({ length: 12 }, (_, i) =>
-      nonVacationRows.reduce((acc, r) => acc + (r.months[i] ?? 0), 0),
-    );
-    const activeMonths = monthTotals.filter((v) => v > 0);
-    const avg = activeMonths.length > 0 ? total / activeMonths.length : 0;
-    return { totalWithoutVacations: total, avgWithoutVacations: avg };
-  }, [filteredData, vacationCategories]);
 
   const { monthlyStacked, activeCategories } = useMemo(() => {
     const cats = filteredData.rows
@@ -196,9 +127,20 @@ export function AnnualDashboard({
       activeMonths > 0 ? data.totalIncome / activeMonths : 0;
     const avgMonthlySavings =
       activeMonths > 0 ? data.totalSavings / activeMonths : 0;
-    const yearlyPct = annualSavingsGoal > 0 ? Math.min(100, Math.max(0, (data.totalSavings / annualSavingsGoal) * 100)) : 0;
+    const yearlyPct =
+      annualSavingsGoal > 0
+        ? Math.min(
+            100,
+            Math.max(0, (data.totalSavings / annualSavingsGoal) * 100),
+          )
+        : 0;
 
-    type CardDef = { label: string; amount: number; gradient: string; goal?: { target: number; pct: number } };
+    type CardDef = {
+      label: string;
+      amount: number;
+      gradient: string;
+      goal?: { target: number; pct: number };
+    };
     const row1: CardDef[] = [
       {
         label: 'סה"כ הוצאות שנתי',
@@ -247,7 +189,7 @@ export function AnnualDashboard({
   }, [filteredData, data.totalIncome, data.totalSavings, annualSavingsGoal]);
 
   return (
-    <div className="container-fluid px-4 py-3">
+    <div className="page-shell">
       <div className="page-header mb-4">
         <h1 className="h4 fw-bold mb-0">סיכום שנתי 20{yearSuffix}</h1>
       </div>
@@ -260,7 +202,9 @@ export function AnnualDashboard({
               if (card.goal) {
                 return (
                   <div key={card.label} className="col">
-                    <div className={`card ${card.gradient} rounded-3 p-3 h-100`}>
+                    <div
+                      className={`card ${card.gradient} rounded-3 p-3 h-100`}
+                    >
                       <div className="d-flex align-items-center gap-2 mb-2">
                         <span className="summary-card-icon">
                           <Target size={18} />
@@ -269,8 +213,12 @@ export function AnnualDashboard({
                       </div>
                       <div className="h5 fw-bold mb-0 text-center">
                         {formatCurrencyCompact(card.amount)}
-                        <span className="opacity-75" style={{ fontSize: "1.1rem" }}>
-                          {" "}/ {formatCurrencyCompact(card.goal.target)}
+                        <span
+                          className="opacity-75"
+                          style={{ fontSize: "1.1rem" }}
+                        >
+                          {" "}
+                          / {formatCurrencyCompact(card.goal.target)}
                         </span>
                       </div>
                     </div>
@@ -280,9 +228,7 @@ export function AnnualDashboard({
               const Icon = getSummaryCardIcon(card.label);
               return (
                 <div key={card.label} className="col">
-                  <div
-                    className={`card ${card.gradient} rounded-3 p-3 h-100`}
-                  >
+                  <div className={`card ${card.gradient} rounded-3 p-3 h-100`}>
                     <div className="d-flex align-items-center gap-2 mb-2">
                       <span className="summary-card-icon">
                         <Icon size={18} />
@@ -301,8 +247,8 @@ export function AnnualDashboard({
       </>
 
       <div className="card rounded-3 border p-3 mb-3">
-        <div className="d-flex flex-wrap align-items-end justify-content-between gap-3">
-          <div>
+        <div className="d-flex flex-wrap align-items-start justify-content-between gap-4">
+          <div style={{ minWidth: 240, maxWidth: 520, flex: "1 1 320px" }}>
             <div className="small fw-semibold mb-2">תצוגת הוצאות</div>
             <div className="btn-group btn-group-sm" role="group">
               <button
@@ -320,28 +266,50 @@ export function AnnualDashboard({
                 הוצאות מנורמלות
               </button>
             </div>
+            <div className="mt-3" style={{ maxWidth: 420 }}>
+              <div className="small text-muted mb-2">קטגוריות לנרמול</div>
+              <MultiSearchableSelect
+                options={categories}
+                colorMap={colorMap}
+                selected={normalizedCategories}
+                onChange={(selected) => {
+                  setNormalizedCategories(selected);
+                  void setIrregularExpenseCategoriesForYearAction(
+                    2000 + yearSuffix,
+                    [...selected],
+                  );
+                  setExpenseView("normalized");
+                }}
+                placeholder="בחר קטגוריות חריגות..."
+              />
+            </div>
           </div>
-          <div style={{ minWidth: 240, maxWidth: 420 }}>
-            <div className="small text-muted mb-2">עריכת קטגוריות לנרמול</div>
+          <div style={{ minWidth: 240, maxWidth: 420, flex: "1 1 280px" }}>
+            <div className="small fw-semibold mb-2">סינון קטגוריות</div>
             <MultiSearchableSelect
               options={categories}
               colorMap={colorMap}
-              selected={excludeCategories}
-              onChange={(selected) => {
-                setExcludeCategories(selected);
-                void setIrregularExpenseCategoriesForYearAction(
-                  2000 + yearSuffix,
-                  [...selected],
-                );
-                setExpenseView("normalized");
-              }}
-              placeholder="בחר קטגוריות חריגות..."
+              selected={filteredOutCategories}
+              onChange={setFilteredOutCategories}
+              placeholder="בחר קטגוריות להסתרה..."
             />
           </div>
         </div>
-        {expenseView === "normalized" && excludeCategories.size > 0 && (
-          <div className="small text-muted mt-3">
-            הקטגוריות המסומנות מחולקות באופן שווה בין החודשים שהושלמו.
+        {filteredOutCategories.size > 0 && (
+          <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+            <div className="small text-muted">
+              {filteredOutCategories.size === 1
+                ? "קטגוריה אחת מוסתרת"
+                : `${filteredOutCategories.size} קטגוריות מוסתרות`}{" "}
+              מהסיכומים, הגרפים והפירוט.
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-link text-secondary p-0"
+              onClick={() => setFilteredOutCategories(new Set())}
+            >
+              ניקוי הסינון
+            </button>
           </div>
         )}
       </div>
@@ -420,55 +388,65 @@ export function AnnualDashboard({
         </div>
         {categoryDetailsOpen && (
           <div className="table-responsive px-3 pb-3">
-          <table className="table table-sm mb-0" style={{ fontSize: "0.85rem" }}>
-            <thead>
-              <tr>
-                <th>קטגוריה</th>
-                <th>מגמה</th>
-                <th className="text-start">סה&quot;כ</th>
-                <th className="text-start d-none d-md-table-cell">ממוצע</th>
-                <th className="text-start">%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.rows
-                .filter((r) => r.total != null && r.total > 0)
-                .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
-                .map((row) => (
-                  <tr key={row.category}>
-                    <td>
-                      <span className="d-flex align-items-center gap-2">
-                        <span
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: "50%",
-                            backgroundColor: colorMap[row.category] || "#6c757d",
-                            flexShrink: 0,
-                          }}
+            <table
+              className="table table-sm mb-0"
+              style={{ fontSize: "0.85rem" }}
+            >
+              <thead>
+                <tr>
+                  <th>קטגוריה</th>
+                  <th>מגמה</th>
+                  <th className="text-start">סה&quot;כ</th>
+                  <th className="text-start d-none d-md-table-cell">ממוצע</th>
+                  <th className="text-start">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.rows
+                  .filter((r) => r.total != null && r.total > 0)
+                  .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
+                  .map((row) => (
+                    <tr key={row.category}>
+                      <td>
+                        <span className="d-flex align-items-center gap-2">
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: "50%",
+                              backgroundColor:
+                                colorMap[row.category] || "#6c757d",
+                              flexShrink: 0,
+                            }}
+                          />
+                          {row.category}
+                        </span>
+                      </td>
+                      <td>
+                        <CategorySparkline
+                          data={row.months}
+                          color={colorMap[row.category] || "#6c757d"}
                         />
-                        {row.category}
-                      </span>
-                    </td>
-                    <td>
-                      <CategorySparkline
-                        data={row.months}
-                        color={colorMap[row.category] || "#6c757d"}
-                      />
-                    </td>
-                    <td className="text-start">
-                      <span dir="ltr">{formatCurrency(row.total ?? 0)}</span>
-                    </td>
-                    <td className="text-start d-none d-md-table-cell">
-                      <span dir="ltr">{formatCurrency(row.average ?? 0)}</span>
-                    </td>
-                    <td className="text-start">
-                      <span dir="ltr">{row.percentage != null ? `${row.percentage.toFixed(2)}%` : "—"}</span>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+                      </td>
+                      <td className="text-start">
+                        <span dir="ltr">{formatCurrency(row.total ?? 0)}</span>
+                      </td>
+                      <td className="text-start d-none d-md-table-cell">
+                        <span dir="ltr">
+                          {formatCurrency(row.average ?? 0)}
+                        </span>
+                      </td>
+                      <td className="text-start">
+                        <span dir="ltr">
+                          {row.percentage != null
+                            ? `${row.percentage.toFixed(2)}%`
+                            : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -482,9 +460,7 @@ export function AnnualDashboard({
           ).length;
           const annualExpenses = filteredData.totals.total ?? 0;
           const monthlyIncome =
-            activeMonths > 0
-              ? data.totalIncomeWithoutEquity / activeMonths
-              : 0;
+            activeMonths > 0 ? data.totalIncomeWithoutEquity / activeMonths : 0;
           const monthlyExpenses =
             activeMonths > 0 ? annualExpenses / activeMonths : 0;
           const annualProfitWithoutEquity =
@@ -509,30 +485,26 @@ export function AnnualDashboard({
                 ? (completedMonthExpenses[
                     completedMonthExpenses.length / 2 - 1
                   ] +
-                    completedMonthExpenses[
-                      completedMonthExpenses.length / 2
-                    ]) /
+                    completedMonthExpenses[completedMonthExpenses.length / 2]) /
                   2
                 : completedMonthExpenses[
                     Math.floor(completedMonthExpenses.length / 2)
                   ]
               : 0;
           const vacationSet = new Set(vacationCategories);
-          const vacationExpenses = data.rows
+          const vacationExpenses = filteredData.rows
             .filter((row) => vacationSet.has(row.category))
             .reduce((sum, row) => sum + (row.total ?? 0), 0);
           const vacationExpenseShare =
-            (data.totals.total ?? 0) > 0
-              ? (vacationExpenses / (data.totals.total ?? 0)) * 100
-              : 0;
+            annualExpenses > 0 ? (vacationExpenses / annualExpenses) * 100 : 0;
           const statGroups = [
             {
               title: "הכנסות",
               stats: [
-                ["סה\"כ הכנסות מ-ESPP", formatCurrency(data.totalEsppIncome)],
-                ["סה\"כ הכנסות מ-RSU", formatCurrency(data.totalRsuIncome)],
+                ['סה"כ הכנסות מ-ESPP', formatCurrency(data.totalEsppIncome)],
+                ['סה"כ הכנסות מ-RSU', formatCurrency(data.totalRsuIncome)],
                 [
-                  "סה\"כ הכנסות שנתיות ללא ESPP ו-RSU",
+                  'סה"כ הכנסות שנתיות ללא ESPP ו-RSU',
                   formatCurrency(data.totalIncomeWithoutEquity),
                 ],
                 [
@@ -548,10 +520,7 @@ export function AnnualDashboard({
             {
               title: "הוצאות וחיסכון",
               stats: [
-                [
-                  "חציון הוצאות חודשי",
-                  formatCurrency(medianMonthlyExpenses),
-                ],
+                ["חציון הוצאות חודשי", formatCurrency(medianMonthlyExpenses)],
                 [
                   "אחוז הוצאות חופשה מסך ההוצאות",
                   `${vacationExpenseShare.toFixed(1)}%`,

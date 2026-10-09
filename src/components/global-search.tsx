@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useDebouncedCallback } from "@/hooks/use-debounced-callback";
 import { searchAllSheetsAction } from "@/lib/actions";
@@ -15,25 +15,29 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
+  const closeSearch = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+    setResults([]);
+  }, []);
+
   // Cmd+K / Ctrl+K listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setOpen((prev) => !prev);
+        if (open) closeSearch();
+        else setOpen(true);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [closeSearch, open]);
 
   // Focus input when modal opens
   useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      setQuery("");
-      setResults([]);
     }
   }, [open]);
 
@@ -57,7 +61,7 @@ export function GlobalSearch() {
     const path =
       type === "vacation" ? `/vacation/${sheetId}` : `/month/${sheetId}`;
     router.push(path);
-    setOpen(false);
+    closeSearch();
   }
 
   if (!open) return null;
@@ -65,10 +69,13 @@ export function GlobalSearch() {
   return (
     <div
       className="global-search-overlay"
-      onClick={() => setOpen(false)}
+      onClick={closeSearch}
       onKeyDown={(e) => {
-        if (e.key === "Escape") setOpen(false);
+        if (e.key === "Escape") closeSearch();
       }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="חיפוש בכל הגיליונות"
     >
       <div
         className="global-search-dialog"

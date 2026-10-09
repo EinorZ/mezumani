@@ -1,4 +1,4 @@
-import { getAnnualData, getAppConfig } from "@/lib/google-sheets";
+import { loadAnnualPage } from "@/server/queries";
 import { buildCategoryColorMap, getCategoryNames } from "@/lib/utils";
 import { AnnualDashboard } from "@/components/annual-dashboard";
 
@@ -9,10 +9,7 @@ interface YearPageProps {
 export default async function YearPage({ params }: YearPageProps) {
   const { year } = await params;
   const yearSuffix = parseInt(year, 10);
-  const [data, config] = await Promise.all([
-    getAnnualData(yearSuffix),
-    getAppConfig(),
-  ]);
+  const { data, config } = await loadAnnualPage(yearSuffix);
 
   const colorMap = buildCategoryColorMap(
     config.monthlyCategories,

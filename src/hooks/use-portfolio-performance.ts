@@ -43,17 +43,28 @@ export function usePortfolioPerformance({
   useEffect(() => {
     if (!enabled) return;
     const apiTerm = term === "all" ? undefined : term;
-    setLoading(true);
-    Promise.all([
-      getPortfolioHistoryAction(rangeRef.current, apiTerm),
-      getPortfolioReturnsAction(apiTerm),
-    ])
-      .then(([history, rets]) => {
+    let active = true;
+
+    async function loadPerformance() {
+      setLoading(true);
+      try {
+        const [history, rets] = await Promise.all([
+          getPortfolioHistoryAction(rangeRef.current, apiTerm),
+          getPortfolioReturnsAction(apiTerm),
+        ]);
+        if (!active) return;
         setChartData(history);
         setReturns(rets);
-      })
-      .finally(() => setLoading(false));
-  }, [term, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadPerformance();
+    return () => {
+      active = false;
+    };
+  }, [term, enabled]);
 
   return { chartData, returns, loading, rangeRef };
 }

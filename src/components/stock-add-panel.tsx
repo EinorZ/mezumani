@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { StockConfig, TransactionType, InvestmentTerm } from "@/lib/types";
 import { addStockTransactionAction } from "@/lib/actions";
-import { ALL_TERMS, TERM_LABELS_SHORT, TERM_COLORS, TERM_TEXT_COLORS } from "@/lib/constants";
+import {
+  ALL_TERMS,
+  TERM_LABELS_SHORT,
+  TERM_COLORS,
+  TERM_TEXT_COLORS,
+} from "@/lib/constants";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 
 interface Props {
@@ -18,9 +23,12 @@ interface Props {
 
 export function StockAddPanel({ config, defaults, onClose }: Props) {
   // Terms ordered by ALL_TERMS, sourced from configured goals (amount optional)
-  const availableTerms = ALL_TERMS.filter((t) => config.goals.some((g) => g.term === t));
-  const defaultTerm: InvestmentTerm =
-    availableTerms.includes("ארוך") ? "ארוך" : availableTerms[0] ?? "ארוך";
+  const availableTerms = ALL_TERMS.filter((t) =>
+    config.goals.some((g) => g.term === t),
+  );
+  const defaultTerm: InvestmentTerm = availableTerms.includes("ארוך")
+    ? "ארוך"
+    : (availableTerms[0] ?? "ארוך");
 
   const [type, setType] = useState<TransactionType>(defaults?.type ?? "קניה");
   const [symbol, setSymbol] = useState(defaults?.symbol ?? "");
@@ -35,6 +43,8 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const formId = useId();
 
   const selectedStock = config.stocks.find((s) => s.symbol === symbol);
   const isILS = selectedStock?.currency === "ILS";
@@ -66,6 +76,12 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
   useEscapeKey(onClose);
 
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    return () => previouslyFocused?.focus();
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!symbol || !quantity || !pricePerShare) return;
@@ -77,7 +93,8 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
       const [y, m, d] = date.split("-");
       const sheetDate = `${d}/${m}/${y.slice(2)}`;
       const rawPrice = parseFloat(pricePerShare) || 0;
-      const priceILS = selectedStock?.currency === "ILS" ? rawPrice / 100 : rawPrice;
+      const priceILS =
+        selectedStock?.currency === "ILS" ? rawPrice / 100 : rawPrice;
       await addStockTransactionAction(
         sheetDate,
         type,
@@ -106,16 +123,25 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
   return (
     <>
       {/* Backdrop */}
-      <div
+      <button
         className="position-fixed top-0 start-0 w-100 h-100"
-        style={{ backgroundColor: "rgba(0,0,0,0.3)", zIndex: 1040 }}
+        style={{
+          backgroundColor: "rgba(0,0,0,0.3)",
+          zIndex: 1040,
+          border: 0,
+        }}
         onClick={onClose}
+        type="button"
+        aria-label="סגירת טופס העסקה"
       />
 
       {/* Panel */}
       <div
         ref={panelRef}
         className="position-fixed top-0 h-100 bg-white shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${formId}-title`}
         style={{
           width: "min(400px, 100vw)",
           right: 0,
@@ -125,16 +151,25 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
         }}
       >
         <div className="d-flex align-items-center justify-content-between p-3 border-bottom">
-          <h6 className="fw-bold mb-0">
+          <h6 className="fw-bold mb-0" id={`${formId}-title`}>
             {type === "קניה" ? "רכישה חדשה" : "מכירה"}
           </h6>
-          <button className="btn btn-sm p-1" onClick={onClose}>
-            <X size={18} />
+          <button
+            ref={closeButtonRef}
+            className="btn btn-sm p-1"
+            onClick={onClose}
+            type="button"
+            aria-label="סגירת טופס העסקה"
+          >
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         {success && (
-          <div className="alert alert-success m-3 mb-0 py-2 small">
+          <div
+            className="alert alert-success m-3 mb-0 py-2 small"
+            role="status"
+          >
             העסקה נוספה בהצלחה
           </div>
         )}
@@ -142,12 +177,15 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
         <form onSubmit={handleSubmit} className="p-3 d-flex flex-column gap-3">
           {/* Buy/Sell toggle */}
           <div>
-            <label className="form-label small fw-medium mb-1">סוג עסקה</label>
-            <div className="btn-group w-100">
+            <span className="form-label small fw-medium mb-1 d-block">
+              סוג עסקה
+            </span>
+            <div className="btn-group w-100" role="group" aria-label="סוג עסקה">
               <button
                 type="button"
                 className={`btn btn-sm ${type === "קניה" ? "btn-success" : "btn-outline-secondary"}`}
                 onClick={() => setType("קניה")}
+                aria-pressed={type === "קניה"}
               >
                 קניה
               </button>
@@ -155,6 +193,7 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
                 type="button"
                 className={`btn btn-sm ${type === "מכירה" ? "btn-danger" : "btn-outline-secondary"}`}
                 onClick={() => setType("מכירה")}
+                aria-pressed={type === "מכירה"}
               >
                 מכירה
               </button>
@@ -163,8 +202,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Stock */}
           <div>
-            <label className="form-label small fw-medium mb-1">מניה *</label>
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-symbol`}
+            >
+              מניה *
+            </label>
             <select
+              id={`${formId}-symbol`}
               className="form-select form-select-sm"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}
@@ -187,8 +232,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Quantity */}
           <div>
-            <label className="form-label small fw-medium mb-1">כמות *</label>
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-quantity`}
+            >
+              כמות *
+            </label>
             <input
+              id={`${formId}-quantity`}
               className="form-control form-control-sm"
               type="number"
               step="any"
@@ -211,10 +262,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
           <div>
             <div className="d-flex gap-2">
               <div className="flex-fill">
-                <label className="form-label small fw-medium mb-1">
-                  {isILS ? "מחיר באגורות למניה *" : "מחיר בש\"ח למניה *"}
+                <label
+                  className="form-label small fw-medium mb-1"
+                  htmlFor={`${formId}-unit-price`}
+                >
+                  {isILS ? "מחיר באגורות למניה *" : 'מחיר בש"ח למניה *'}
                 </label>
                 <input
+                  id={`${formId}-unit-price`}
                   className="form-control form-control-sm"
                   type="number"
                   step="any"
@@ -225,8 +280,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
                 />
               </div>
               <div className="flex-fill">
-                <label className="form-label small fw-medium mb-1">סה&quot;כ (₪)</label>
+                <label
+                  className="form-label small fw-medium mb-1"
+                  htmlFor={`${formId}-total-price`}
+                >
+                  סה&quot;כ (₪)
+                </label>
                 <input
+                  id={`${formId}-total-price`}
                   className="form-control form-control-sm"
                   type="number"
                   step="any"
@@ -245,8 +306,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Date */}
           <div>
-            <label className="form-label small fw-medium mb-1">תאריך</label>
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-date`}
+            >
+              תאריך
+            </label>
             <input
+              id={`${formId}-date`}
               className="form-control form-control-sm"
               type="date"
               value={date}
@@ -256,8 +323,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Term */}
           <div>
-            <label className="form-label small fw-medium mb-1">סוג השקעה</label>
-            <div className="btn-group w-100">
+            <span className="form-label small fw-medium mb-1 d-block">
+              סוג השקעה
+            </span>
+            <div
+              className="btn-group w-100"
+              role="group"
+              aria-label="סוג השקעה"
+            >
               {availableTerms.map((t) => (
                 <button
                   key={t}
@@ -265,10 +338,19 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
                   className="btn btn-sm"
                   style={
                     term === t
-                      ? { backgroundColor: TERM_COLORS[t], color: TERM_TEXT_COLORS[t], borderColor: TERM_COLORS[t] }
-                      : { backgroundColor: "transparent", color: "var(--bs-body-color)", borderColor: "var(--bs-border-color)" }
+                      ? {
+                          backgroundColor: TERM_COLORS[t],
+                          color: TERM_TEXT_COLORS[t],
+                          borderColor: TERM_COLORS[t],
+                        }
+                      : {
+                          backgroundColor: "transparent",
+                          color: "var(--bs-body-color)",
+                          borderColor: "var(--bs-border-color)",
+                        }
                   }
                   onClick={() => setTerm(t)}
+                  aria-pressed={term === t}
                 >
                   {TERM_LABELS_SHORT[t]}
                 </button>
@@ -278,8 +360,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Bank */}
           <div>
-            <label className="form-label small fw-medium mb-1">בנק</label>
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-bank`}
+            >
+              בנק
+            </label>
             <select
+              id={`${formId}-bank`}
               className="form-select form-select-sm"
               value={bank}
               onChange={(e) => setBank(e.target.value)}
@@ -295,10 +383,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Tax */}
           <div>
-            <label className="form-label small fw-medium mb-1">
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-tax`}
+            >
               עמלת קנייה (ש&quot;ח)
             </label>
             <input
+              id={`${formId}-tax`}
               className="form-control form-control-sm"
               type="number"
               step="any"
@@ -310,8 +402,14 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
 
           {/* Comment */}
           <div>
-            <label className="form-label small fw-medium mb-1">הערה</label>
+            <label
+              className="form-label small fw-medium mb-1"
+              htmlFor={`${formId}-comment`}
+            >
+              הערה
+            </label>
             <input
+              id={`${formId}-comment`}
               className="form-control form-control-sm"
               type="text"
               placeholder="הערה לעסקה..."

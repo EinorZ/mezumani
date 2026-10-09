@@ -1,5 +1,7 @@
 "use client";
 
+import { PageError } from "@/components/ui/route-state";
+
 export default function Error({
   error,
   reset,
@@ -8,15 +10,6 @@ export default function Error({
   reset: () => void;
 }) {
   return (
-    <div
-      className="d-flex flex-column align-items-center justify-content-center gap-3"
-      style={{ minHeight: "100vh" }}
-    >
-      <h2 className="h5 fw-bold">שגיאה בטעינת הסיכום השנתי</h2>
-      <p className="text-secondary">{error.message}</p>
-      <button className="btn btn-success" onClick={reset}>
-        נסה שוב
-      </button>
-    </div>
+    <PageError title="שגיאה בטעינת הסיכום השנתי" error={error} reset={reset} />
   );
 }

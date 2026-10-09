@@ -17,46 +17,60 @@ export function SearchableSelect({
   onChange,
   placeholder,
 }: SearchableSelectProps) {
-  const dd = useSearchableDropdown(options);
+  const {
+    open,
+    setOpen,
+    search,
+    setSearch,
+    dropUp,
+    highlightIndex,
+    setHighlightIndex,
+    containerRef,
+    inputRef,
+    listRef,
+    filtered,
+    close,
+    handleKeyDown,
+  } = useSearchableDropdown(options);
 
   function handleSelect(val: string) {
     onChange(val);
-    dd.close();
+    close();
   }
 
   return (
-    <div ref={dd.containerRef} style={{ position: "relative", minWidth: "120px" }}>
-      {value && !dd.open ? (
+    <div ref={containerRef} style={{ position: "relative", minWidth: "120px" }}>
+      {value && !open ? (
         <span
           className="badge rounded-pill"
           style={{
             backgroundColor: colorMap[value] || "#6c757d",
             cursor: "pointer",
           }}
-          onClick={() => dd.setOpen(true)}
+          onClick={() => setOpen(true)}
         >
           {value}
         </span>
       ) : (
         <input
-          ref={dd.inputRef}
+          ref={inputRef}
           className="form-control form-control-sm"
           placeholder={placeholder}
-          value={dd.search}
+          value={search}
           onChange={(e) => {
-            dd.setSearch(e.target.value);
-            dd.setHighlightIndex(-1);
+            setSearch(e.target.value);
+            setHighlightIndex(-1);
           }}
-          onFocus={() => dd.setOpen(true)}
-          onKeyDown={(e) => dd.handleKeyDown(e, handleSelect)}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => handleKeyDown(e, handleSelect)}
         />
       )}
-      {dd.open && (
+      {open && (
         <div
-          ref={dd.listRef}
+          ref={listRef}
           style={{
             position: "absolute",
-            ...(dd.dropUp ? { bottom: "100%" } : { top: "100%" }),
+            ...(dropUp ? { bottom: "100%" } : { top: "100%" }),
             right: 0,
             left: 0,
             zIndex: 1050,
@@ -68,19 +82,19 @@ export function SearchableSelect({
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           }}
         >
-          {dd.filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="px-2 py-1 text-secondary small">אין תוצאות</div>
           ) : (
-            dd.filtered.map((o, i) => (
+            filtered.map((o, i) => (
               <div
                 key={`${o}-${i}`}
                 className="px-2 py-1"
                 style={{
                   cursor: "pointer",
-                  backgroundColor: i === dd.highlightIndex ? "#e9ecef" : undefined,
+                  backgroundColor: i === highlightIndex ? "#e9ecef" : undefined,
                 }}
                 onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => dd.setHighlightIndex(i)}
+                onMouseEnter={() => setHighlightIndex(i)}
                 onClick={() => handleSelect(o)}
               >
                 <span

@@ -1,6 +1,13 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Transaction, TransactionInput } from "@/lib/types";
 import { revalidatePageAction } from "@/lib/actions";
 
@@ -26,7 +33,11 @@ interface Options {
   sheetTitle: string;
   pagePath: string;
   addAction: (title: string, input: TransactionInput) => Promise<number>;
-  editAction: (title: string, row: number, input: TransactionInput) => Promise<void>;
+  editAction: (
+    title: string,
+    row: number,
+    input: TransactionInput,
+  ) => Promise<void>;
   deleteAction: (title: string, row: number) => Promise<void>;
   onError?: (msg: string) => void;
 }
@@ -44,9 +55,11 @@ export function useOptimisticTransactions({
   onError,
 }: Options) {
   const [pendingAdds, setPendingAdds] = useState<Transaction[]>([]);
-  const [pendingEdits, setPendingEdits] = useState<Map<number, Transaction>>(new Map());
+  const [pendingEdits, setPendingEdits] = useState<Map<number, Transaction>>(
+    new Map(),
+  );
   const [pendingDeletes, setPendingDeletes] = useState<Set<number>>(new Set());
-  const [_undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [, setUndoStack] = useState<UndoEntry[]>([]);
   const inflightRef = useRef(0);
   const addedRowMapRef = useRef<Map<number, number>>(new Map());
   const cancelledAddsRef = useRef<Set<number>>(new Set());
@@ -55,7 +68,9 @@ export function useOptimisticTransactions({
   function scheduleRevalidate() {
     if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
     revalidateTimer.current = setTimeout(() => {
-      startTransition(() => { revalidatePageAction(pagePath); });
+      startTransition(() => {
+        revalidatePageAction(pagePath);
+      });
       revalidateTimer.current = null;
     }, REVALIDATE_DELAY);
   }
@@ -63,7 +78,9 @@ export function useOptimisticTransactions({
   function flushRevalidate() {
     if (revalidateTimer.current) clearTimeout(revalidateTimer.current);
     revalidateTimer.current = null;
-    startTransition(() => { revalidatePageAction(pagePath); });
+    startTransition(() => {
+      revalidatePageAction(pagePath);
+    });
   }
 
   // Clear optimistic state when server data updates AND no ops are in flight
@@ -89,6 +106,10 @@ export function useOptimisticTransactions({
   function onInflightDone() {
     inflightRef.current--;
     scheduleRevalidate();
+  }
+
+  function beginInflight() {
+    inflightRef.current++;
   }
 
   function handleAdd(input: TransactionInput & { date: string }) {
@@ -206,7 +227,10 @@ export function useOptimisticTransactions({
       });
   }
 
-  function applyBulkEdits(rowEdits: { row: number; category?: string; card?: string }[], all: Transaction[]) {
+  function applyBulkEdits(
+    rowEdits: { row: number; category?: string; card?: string }[],
+    all: Transaction[],
+  ) {
     setPendingEdits((prev) => {
       const next = new Map(prev);
       for (const u of rowEdits) {
@@ -245,7 +269,11 @@ export function useOptimisticTransactions({
     });
   }
 
-  function applyBulkTentative(rows: number[], tentative: boolean, all: Transaction[]) {
+  function applyBulkTentative(
+    rows: number[],
+    tentative: boolean,
+    all: Transaction[],
+  ) {
     setPendingEdits((prev) => {
       const next = new Map(prev);
       for (const row of rows) {
@@ -322,7 +350,7 @@ export function useOptimisticTransactions({
     applyBulkDeletes,
     revertBulkDeletes,
     applyBulkTentative,
-    inflightRef,
+    beginInflight,
     flushRevalidate,
     onInflightDone,
   };

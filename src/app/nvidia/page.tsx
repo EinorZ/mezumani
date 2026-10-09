@@ -1,14 +1,14 @@
 export const dynamic = "force-dynamic";
 
-import { getNvidiaCompensationData } from "@/lib/nvidia-dashboard";
+import { loadNvidiaPage } from "@/server/queries";
 import { NvidiaDashboard } from "@/components/nvidia-dashboard";
 
 export default async function NvidiaPage() {
-  const data = await getNvidiaCompensationData();
+  const data = await loadNvidiaPage();
 
   return (
-    <div className="container-fluid px-4 py-3">
-      <NvidiaDashboard data={data} />
+    <div className="page-shell">
+      <NvidiaDashboard data={data} renderedAt={new Date().toISOString()} />
     </div>
   );
 }

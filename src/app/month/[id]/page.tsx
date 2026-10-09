@@ -1,20 +1,9 @@
-import {
-  getMonthlyData,
-  listSheets,
-  getVacationRowsForMonth,
-  syncVacationRowsToMonthSheet,
-  isMonthDone,
-} from "@/lib/google-sheets";
+import { loadMonthPage } from "@/server/queries";
 import {
   CARD_OWNER_COLORS,
   OWNER_LABELS,
   getCardOwner,
 } from "@/lib/utils";
-import {
-  loadPageConfig,
-  getCategoryNames,
-  ensureTransactionCardColors,
-} from "@/lib/page-helpers";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
 import { CardBreakdown, type OwnerGroup } from "@/components/card-breakdown";
@@ -32,24 +21,18 @@ interface MonthPageProps {
 export default async function MonthPage({ params }: MonthPageProps) {
   const { id } = await params;
   const sheetId = parseInt(id, 10);
-
-  const [sheets, { config, allCards, cardColorMap, colorMap }] =
-    await Promise.all([listSheets(), loadPageConfig()]);
-
-  const sheet = sheets.find((s) => s.sheetId === sheetId);
-  if (!sheet) throw new Error(`Sheet with id ${sheetId} not found`);
-  const title = sheet.title;
-
-  const categoryNames = getCategoryNames(config.monthlyCategories);
-  const isDone = await isMonthDone(title);
-
-  // Sync vacation rows into the monthly sheet, then fetch data (includes synced rows)
-  const vacationSheets = sheets.filter((s) => s.type === "vacation");
-  const vacationRows = await getVacationRowsForMonth(title, vacationSheets);
-  await syncVacationRowsToMonthSheet(title, vacationRows);
-
-  const data = await getMonthlyData(title, config.summaryCards, config.categoryMappings);
-  ensureTransactionCardColors(data.transactions, cardColorMap, config);
+  const {
+    allCards,
+    cardColorMap,
+    categoryNames,
+    colorMap,
+    config,
+    data,
+    isDone,
+    title,
+    vacationRows,
+    vacationSheets,
+  } = await loadMonthPage(sheetId);
 
   // Group card breakdown by owner
   const cardsByOwner = new Map<string, { card: string; amount: number }[]>();
@@ -116,7 +99,7 @@ export default async function MonthPage({ params }: MonthPageProps) {
       cardColorMap={cardColorMap}
       categoryNames={categoryNames}
     >
-      <div className="container-fluid px-4 py-3">
+      <div className="page-shell">
         <div className="page-header mb-4 d-flex justify-content-between align-items-center">
           <h1 className="h4 fw-bold mb-0">{title}</h1>
           <MonthDoneToggle sheetTitle={title} initialDone={isDone} />

@@ -53,7 +53,9 @@ function useLabelData(
         label,
         value,
         percent: total > 0 ? (value / total) * 100 : 0,
-        color: labelColorMap?.[label] ?? (label === otherLabel ? "#adb5bd" : getLabelColor(label)),
+        color:
+          labelColorMap?.[label] ??
+          (label === otherLabel ? "#adb5bd" : getLabelColor(label)),
       }))
       .sort((a, b) => b.value - a.value);
     return { data: items, totalValue: total };
@@ -61,18 +63,31 @@ function useLabelData(
 }
 
 /* ── Improved Donut ── */
-function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: number }) {
-  const { hidden, hoveredIndex, handleClick, handleDblClick, handleHover, isHidden } =
-    useChartLegend<LabelDataItem>(data, (item) => item.label);
+function DonutChart({ data }: { data: LabelDataItem[] }) {
+  const {
+    hidden,
+    hoveredIndex,
+    handleClick,
+    handleDblClick,
+    handleHover,
+    isHidden,
+  } = useChartLegend<LabelDataItem>(data, (item) => item.label);
 
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.label));
     const total = filtered.reduce((s, d) => s + d.value, 0);
-    return filtered.map((d) => ({ ...d, percent: total > 0 ? (d.value / total) * 100 : 0 }));
+    return filtered.map((d) => ({
+      ...d,
+      percent: total > 0 ? (d.value / total) * 100 : 0,
+    }));
   }, [data, hidden]);
 
-  const visibleTotal = useMemo(() => visibleData.reduce((s, d) => s + d.value, 0), [visibleData]);
-  const hoveredItem = hoveredIndex !== undefined ? visibleData[hoveredIndex] : null;
+  const visibleTotal = useMemo(
+    () => visibleData.reduce((s, d) => s + d.value, 0),
+    [visibleData],
+  );
+  const hoveredItem =
+    hoveredIndex !== undefined ? visibleData[hoveredIndex] : null;
 
   return (
     <>
@@ -90,7 +105,16 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
               nameKey="label"
               stroke="none"
               shape={(props: PieSectorShapeProps) => {
-                const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, index } = props;
+                const {
+                  cx,
+                  cy,
+                  innerRadius,
+                  outerRadius,
+                  startAngle,
+                  endAngle,
+                  fill,
+                  index,
+                } = props;
                 const isHovered = hoveredIndex === index;
                 return (
                   <Sector
@@ -104,7 +128,8 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
                     style={{
                       cursor: "pointer",
                       transition: "all 200ms ease",
-                      opacity: hoveredIndex !== undefined && !isHovered ? 0.4 : 1,
+                      opacity:
+                        hoveredIndex !== undefined && !isHovered ? 0.4 : 1,
                     }}
                   />
                 );
@@ -132,10 +157,16 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
         >
           {hoveredItem ? (
             <>
-              <div className="fw-bold" style={{ fontSize: "0.85rem", lineHeight: 1.2 }}>
+              <div
+                className="fw-bold"
+                style={{ fontSize: "0.85rem", lineHeight: 1.2 }}
+              >
                 {hoveredItem.label}
               </div>
-              <div className="fw-bold" style={{ fontSize: "0.95rem", color: hoveredItem.color }}>
+              <div
+                className="fw-bold"
+                style={{ fontSize: "0.95rem", color: hoveredItem.color }}
+              >
                 {hoveredItem.percent.toFixed(1)}%
               </div>
               <div className="text-muted" style={{ fontSize: "0.7rem" }}>
@@ -144,7 +175,9 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
             </>
           ) : (
             <>
-              <div className="text-muted" style={{ fontSize: "0.7rem" }}>סה&quot;כ</div>
+              <div className="text-muted" style={{ fontSize: "0.7rem" }}>
+                סה&quot;כ
+              </div>
               <div className="fw-bold" style={{ fontSize: "1rem" }}>
                 {formatCurrencyCompact(visibleTotal)}
               </div>
@@ -157,27 +190,39 @@ function DonutChart({ data, totalValue }: { data: LabelDataItem[]; totalValue: n
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
         {data.map((item, idx) => {
           const itemIsHidden = isHidden(item.label);
-          const visibleIdx = visibleData.findIndex((d) => d.label === item.label);
+          const visibleIdx = visibleData.findIndex(
+            (d) => d.label === item.label,
+          );
           return (
             <div
               key={`${item.label}-${idx}`}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",
-                opacity: itemIsHidden ? 0.35 : (hoveredIndex !== undefined && hoveredIndex !== visibleIdx ? 0.5 : 1),
+                opacity: itemIsHidden
+                  ? 0.35
+                  : hoveredIndex !== undefined && hoveredIndex !== visibleIdx
+                    ? 0.5
+                    : 1,
                 transition: "opacity 150ms ease",
                 cursor: "pointer",
                 textDecoration: itemIsHidden ? "line-through" : "none",
                 userSelect: "none",
               }}
-              onMouseEnter={() => { if (!itemIsHidden) handleHover(visibleIdx); }}
+              onMouseEnter={() => {
+                if (!itemIsHidden) handleHover(visibleIdx);
+              }}
               onMouseLeave={() => handleHover(undefined)}
               onClick={() => handleClick(item.label)}
               onDoubleClick={() => handleDblClick(item.label)}
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
+                style={{
+                  width: 8,
+                  height: 8,
+                  backgroundColor: itemIsHidden ? "#ccc" : item.color,
+                }}
               />
               <span>{item.label}</span>
             </div>
@@ -198,12 +243,15 @@ interface TreemapContentProps {
   percent: number;
   color: string;
   depth: number;
-  onHover: (item: { label: string; percent: number; value: number } | null) => void;
+  onHover: (
+    item: { label: string; percent: number; value: number } | null,
+  ) => void;
   value: number;
 }
 
 function TreemapContent(props: TreemapContentProps) {
-  const { x, y, width, height, label, percent, color, depth, onHover, value } = props;
+  const { x, y, width, height, label, percent, color, depth, onHover, value } =
+    props;
   if (depth !== 1) return null;
 
   return (
@@ -212,7 +260,16 @@ function TreemapContent(props: TreemapContentProps) {
       onMouseLeave={() => onHover(null)}
       style={{ cursor: "pointer" }}
     >
-      <rect x={x} y={y} width={width} height={height} rx={6} fill={color} stroke="#fff" strokeWidth={3} />
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={6}
+        fill={color}
+        stroke="#fff"
+        strokeWidth={3}
+      />
       {width > 50 && height > 35 && (
         <text
           x={x + width / 2}
@@ -251,11 +308,20 @@ function TreemapChart({ data }: { data: LabelDataItem[] }) {
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.label));
     const total = filtered.reduce((s, d) => s + d.value, 0);
-    return filtered.map((d) => ({ ...d, percent: total > 0 ? (d.value / total) * 100 : 0 }));
+    return filtered.map((d) => ({
+      ...d,
+      percent: total > 0 ? (d.value / total) * 100 : 0,
+    }));
   }, [data, hidden]);
 
-  const treemapData = visibleData.map((d) => ({ ...d, name: d.label } as Record<string, unknown>));
-  const [tooltip, setTooltip] = useState<{ label: string; percent: number; value: number } | null>(null);
+  const treemapData = visibleData.map(
+    (d) => ({ ...d, name: d.label }) as Record<string, unknown>,
+  );
+  const [tooltip, setTooltip] = useState<{
+    label: string;
+    percent: number;
+    value: number;
+  } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
   return (
@@ -272,8 +338,15 @@ function TreemapChart({ data }: { data: LabelDataItem[] }) {
             stroke="#fff"
             content={
               <TreemapContent
-                x={0} y={0} width={0} height={0}
-                label="" percent={0} color="" depth={0} value={0}
+                x={0}
+                y={0}
+                width={0}
+                height={0}
+                label=""
+                percent={0}
+                color=""
+                depth={0}
+                value={0}
                 onHover={setTooltip}
               />
             }
@@ -299,7 +372,8 @@ function TreemapChart({ data }: { data: LabelDataItem[] }) {
           >
             <div className="fw-bold">{tooltip.label}</div>
             <div className="text-muted">
-              {tooltip.percent.toFixed(1)}% · {formatCurrencyCompact(tooltip.value)}
+              {tooltip.percent.toFixed(1)}% ·{" "}
+              {formatCurrencyCompact(tooltip.value)}
             </div>
           </div>
         )}
@@ -326,7 +400,11 @@ function TreemapChart({ data }: { data: LabelDataItem[] }) {
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
+                style={{
+                  width: 8,
+                  height: 8,
+                  backgroundColor: itemIsHidden ? "#ccc" : item.color,
+                }}
               />
               <span>{item.label}</span>
             </div>
@@ -346,13 +424,20 @@ export function LabelAllocationChart({
   otherLabel = "אחר",
   chartMode = "donut",
 }: Props) {
-  const { data, totalValue } = useLabelData(holdings, labelMap, otherLabel, labelColorMap);
+  const { data, totalValue } = useLabelData(
+    holdings,
+    labelMap,
+    otherLabel,
+    labelColorMap,
+  );
 
   if (data.length === 0) {
     return (
       <div className="card rounded-3 border p-3 h-100">
         <h6 className="fw-bold small mb-2">{title}</h6>
-        <div className="text-muted small text-center py-4">אין נתונים להצגה</div>
+        <div className="text-muted small text-center py-4">
+          אין נתונים להצגה
+        </div>
       </div>
     );
   }
@@ -366,7 +451,7 @@ export function LabelAllocationChart({
         סה&quot;כ שווי: {formatCurrency(totalValue)}
       </div>
 
-      {chartMode === "donut" && <DonutChart data={data} totalValue={totalValue} />}
+      {chartMode === "donut" && <DonutChart data={data} />}
       {chartMode === "treemap" && <TreemapChart data={data} />}
     </div>
   );

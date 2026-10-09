@@ -2,11 +2,12 @@
 
 import {
   useEffect,
+  useEffectEvent,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { formatCurrency, evalMathExpr } from "@/lib/utils";
 import { HEBREW_MONTHS } from "@/lib/constants";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -27,12 +28,7 @@ import {
   bulkMoveToVacationAction,
   revalidatePageAction,
 } from "@/lib/actions";
-import type {
-  Transaction,
-  VacationMonthRow,
-  SheetInfo,
-  TransactionInput,
-} from "@/lib/types";
+import type { Transaction, SheetInfo, TransactionInput } from "@/lib/types";
 import { usePageConfig } from "@/contexts/page-config-context";
 import { useOptimisticTransactions } from "@/hooks/use-optimistic-transactions";
 import { useSort } from "@/hooks/use-sort";
@@ -44,7 +40,7 @@ interface Props {
   sheetTitle: string;
   pagePath: string;
   isVacation?: boolean;
-  vacationRows?: VacationMonthRow[];
+  vacationRows?: import("@/lib/types").VacationMonthRow[];
   vacationSheets?: SheetInfo[];
 }
 
@@ -122,7 +118,10 @@ function buildDate(dayInput: string, sheetMonth: string): string {
   // DD.MM.YYYY or DD.MM.YY (with year)
   const matchWithYear = trimmed.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
   if (matchWithYear) {
-    const yr = matchWithYear[3].length === 4 ? matchWithYear[3].slice(-2) : matchWithYear[3];
+    const yr =
+      matchWithYear[3].length === 4
+        ? matchWithYear[3].slice(-2)
+        : matchWithYear[3];
     return `${matchWithYear[1]}/${matchWithYear[2]}/${yr}`;
   }
   // DD.MM or DD/MM
@@ -139,7 +138,6 @@ export function TransactionTable({
   sheetTitle,
   pagePath,
   isVacation,
-  vacationRows,
   vacationSheets,
 }: Props) {
   const {
@@ -153,22 +151,34 @@ export function TransactionTable({
   const defaultAddForm = { ...emptyForm, month: sheetMonth };
 
   const [editingRow, setEditingRow] = useState<number | null>(null);
-  const lastCardRef = useRef("");
-  const addDayInputRef = useRef<HTMLInputElement>(null);
+  const [lastCard, setLastCard] = useState("");
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [addForm, setAddForm] = useState(defaultAddForm);
   const [editForm, setEditForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showMobileAdd, setShowMobileAdd] = useState(false);
+  const mobileSheetTitleId = useId();
+  const mobileSheetCloseRef = useRef<HTMLButtonElement>(null);
   const [mobileAddForm, setMobileAddForm] = useState(defaultAddForm);
   const [bulkVacationDest, setBulkVacationDest] = useState("");
 
-  // Ref for the edit row element to detect outside clicks
-  const editRowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showMobileAdd) return;
+    mobileSheetCloseRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showMobileAdd]);
 
   // Swipe-to-select tracking (no re-renders during swipe)
-  const swipeRef = useRef<{ startX: number; row: number; el: HTMLElement | null } | null>(null);
+  const swipeRef = useRef<{
+    startX: number;
+    row: number;
+    el: HTMLElement | null;
+  } | null>(null);
 
   const addAction = isVacation ? addVacationTransaction : addTransaction;
   const editAction = isVacation ? editVacationTransaction : editTransaction;
@@ -200,13 +210,18 @@ export function TransactionTable({
     () => optimistic.displayRows.filter((t) => t.row >= 0),
     [optimistic.displayRows],
   );
-  const { sortedRows: sortedServerRows, toggleSort, sortIndicator } = useSort(
-    serverRows,
-    compareTransactions,
-  );
+  const {
+    sortedRows: sortedServerRows,
+    toggleSort,
+    sortIndicator,
+  } = useSort(serverRows, compareTransactions);
   const sortedRows = useMemo(() => {
-    const vacation = sortedServerRows.filter((t) => t.notes.startsWith("auto:vacation:"));
-    const regular = sortedServerRows.filter((t) => !t.notes.startsWith("auto:vacation:"));
+    const vacation = sortedServerRows.filter((t) =>
+      t.notes.startsWith("auto:vacation:"),
+    );
+    const regular = sortedServerRows.filter(
+      (t) => !t.notes.startsWith("auto:vacation:"),
+    );
     return [...regular, ...optimistic.pendingAdds, ...vacation];
   }, [sortedServerRows, optimistic.pendingAdds]);
 
@@ -248,15 +263,32 @@ export function TransactionTable({
     return [...set].sort((a, b) => a.localeCompare(b, "he"));
   }, [sortedRows]);
 
+  function lookupCategoryMapping(expenseName: string): string | undefined {
+    if (!categoryMappings?.length || !expenseName.trim()) return undefined;
+    const trimmed = expenseName.trim().toLowerCase();
+    for (const m of categoryMappings) {
+      const names = m.expenseName
+        .split(",")
+        .map((name) => name.trim().toLowerCase())
+        .filter(Boolean);
+      for (const name of names) {
+        if (name === trimmed || trimmed.includes(name)) return m.category;
+      }
+    }
+    return undefined;
+  }
+
   function handleAdd() {
     if (!addForm.expense.trim() && !addForm.amount.trim()) return;
     const date = buildDate(addForm.day, sheetMonth);
     const amount = evalMathExpr(addForm.amount);
-    const category = addForm.category || (!isVacation && lookupCategoryMapping(addForm.expense)) || "";
-    const card = addForm.card || lastCardRef.current;
-    if (card) lastCardRef.current = card;
+    const category =
+      addForm.category ||
+      (!isVacation && lookupCategoryMapping(addForm.expense)) ||
+      "";
+    const card = addForm.card || lastCard;
+    if (card) setLastCard(card);
     setAddForm({ ...defaultAddForm, card });
-    requestAnimationFrame(() => addDayInputRef.current?.focus());
     optimistic.handleAdd({
       date,
       expense: addForm.expense,
@@ -272,9 +304,12 @@ export function TransactionTable({
     if (!mobileAddForm.expense.trim() && !mobileAddForm.amount.trim()) return;
     const date = buildDate(mobileAddForm.day, sheetMonth);
     const amount = evalMathExpr(mobileAddForm.amount);
-    const category = mobileAddForm.category || (!isVacation && lookupCategoryMapping(mobileAddForm.expense)) || "";
-    const card = mobileAddForm.card || lastCardRef.current;
-    if (card) lastCardRef.current = card;
+    const category =
+      mobileAddForm.category ||
+      (!isVacation && lookupCategoryMapping(mobileAddForm.expense)) ||
+      "";
+    const card = mobileAddForm.card || lastCard;
+    if (card) setLastCard(card);
     setMobileAddForm({ ...defaultAddForm, card });
     setShowMobileAdd(false);
     optimistic.handleAdd({
@@ -291,7 +326,10 @@ export function TransactionTable({
   function handleEdit(row: number) {
     const date = buildDate(editForm.day, sheetMonth);
     const amount = evalMathExpr(editForm.amount);
-    const category = editForm.category || (!isVacation && lookupCategoryMapping(editForm.expense)) || "";
+    const category =
+      editForm.category ||
+      (!isVacation && lookupCategoryMapping(editForm.expense)) ||
+      "";
     setEditingRow(null);
     optimistic.handleEdit(row, {
       date,
@@ -323,7 +361,7 @@ export function TransactionTable({
     optimistic.applyBulkEdits(updates, filteredRows);
     clearSelection();
 
-    optimistic.inflightRef.current++;
+    optimistic.beginInflight();
     bulkEditAction(sheetTitle, updates)
       .then(optimistic.onInflightDone)
       .catch((e) => {
@@ -341,7 +379,7 @@ export function TransactionTable({
     optimistic.applyBulkDeletes(rows);
     clearSelection();
 
-    optimistic.inflightRef.current++;
+    optimistic.beginInflight();
     bulkDeleteAction(sheetTitle, rows)
       .then(optimistic.onInflightDone)
       .catch((e) => {
@@ -359,7 +397,7 @@ export function TransactionTable({
     optimistic.applyBulkTentative(rows, tentative, filteredRows);
     clearSelection();
 
-    optimistic.inflightRef.current++;
+    optimistic.beginInflight();
     bulkTentativeAction(sheetTitle, rows, tentative)
       .then(optimistic.onInflightDone)
       .catch((e) => {
@@ -388,7 +426,7 @@ export function TransactionTable({
     clearSelection();
 
     const vs = vacationSheets?.find((s) => s.title === bulkVacationDest);
-    optimistic.inflightRef.current++;
+    optimistic.beginInflight();
     bulkMoveToVacationAction(sheetTitle, bulkVacationDest, rows, txData)
       .then(() => {
         optimistic.onInflightDone();
@@ -402,67 +440,57 @@ export function TransactionTable({
       });
   }
 
-  // Refs for current add/edit actions so the global listener always sees latest
-  const handleAddRef = useRef(handleAdd);
-  handleAddRef.current = handleAdd;
-  const editingRowRef = useRef(editingRow);
-  editingRowRef.current = editingRow;
-  const handleEditRef = useRef(handleEdit);
-  handleEditRef.current = handleEdit;
-
-  // Global keyboard listener: Cmd/Ctrl+Z, Enter to save, Esc to cancel edit
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        optimistic.handleUndo();
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        if (editingRowRef.current !== null) {
-          handleEditRef.current(editingRowRef.current);
-        } else {
-          handleAddRef.current();
-        }
-        optimistic.flushRevalidate();
-        return;
-      }
-      if (e.key === "Enter") {
-        if (editingRowRef.current !== null) {
-          handleEditRef.current(editingRowRef.current);
-        } else {
-          // Only handle Enter for add-row if target is inside the transaction table
-          if (!tableContainerRef.current?.contains(e.target as Node)) return;
-          handleAddRef.current();
-        }
-        return;
-      }
-      if (e.key === "Escape") {
-        if (selectedRows.size > 0) {
-          clearSelection();
-          return;
-        }
-        if (editingRowRef.current !== null) {
-          setEditingRow(null);
-        }
-      }
+  const onGlobalKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      optimistic.handleUndo();
+      return;
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [optimistic.handleUndo, selectedRows.size]);
+
+    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      e.preventDefault();
+      if (editingRow !== null) handleEdit(editingRow);
+      else handleAdd();
+      optimistic.flushRevalidate();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      if (editingRow !== null) handleEdit(editingRow);
+      else {
+        if (!tableContainerRef.current?.contains(e.target as Node)) return;
+        handleAdd();
+      }
+      return;
+    }
+
+    if (e.key === "Escape") {
+      if (selectedRows.size > 0) clearSelection();
+      else if (editingRow !== null) setEditingRow(null);
+    }
+  });
+
+  useEffect(() => {
+    window.addEventListener("keydown", onGlobalKeyDown);
+    return () => window.removeEventListener("keydown", onGlobalKeyDown);
+  }, []);
+
+  const onEditOutside = useEffectEvent((e: MouseEvent) => {
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      !target.closest(".tx-row-edit") &&
+      editingRow !== null
+    ) {
+      handleEdit(editingRow);
+    }
+  });
 
   // Click outside edit row → save and exit
   useEffect(() => {
     if (editingRow === null) return;
-    function onMouseDown(e: MouseEvent) {
-      const row = editRowRef.current;
-      if (row && !row.contains(e.target as Node)) {
-        handleEditRef.current(editingRowRef.current!);
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousedown", onEditOutside);
+    return () => document.removeEventListener("mousedown", onEditOutside);
   }, [editingRow]);
 
   function startEdit(t: Transaction) {
@@ -484,21 +512,6 @@ export function TransactionTable({
     });
   }
 
-  function lookupCategoryMapping(expenseName: string): string | undefined {
-    if (!categoryMappings?.length || !expenseName.trim()) return undefined;
-    const trimmed = expenseName.trim().toLowerCase();
-    for (const m of categoryMappings) {
-      const names = m.expenseName
-        .split(",")
-        .map((n) => n.trim().toLowerCase())
-        .filter(Boolean);
-      for (const name of names) {
-        if (name === trimmed || trimmed.includes(name)) return m.category;
-      }
-    }
-    return undefined;
-  }
-
   const borderlessInput: React.CSSProperties = {
     border: "none",
     background: "transparent",
@@ -514,15 +527,12 @@ export function TransactionTable({
     submitLabel: string,
     onCancel?: () => void,
     rowClass?: string,
-    ref?: React.RefObject<HTMLDivElement | null>,
-    dayRef?: React.RefObject<HTMLInputElement | null>,
   ) {
     const isEdit = rowClass === "tx-row-edit";
     return (
-      <div key={key} ref={ref} className={`tx-row ${rowClass || "tx-row-add"}`}>
+      <div key={key} className={`tx-row ${rowClass || "tx-row-add"}`}>
         <div style={{ flex: COL.date, minWidth: 0 }}>
           <input
-            ref={dayRef}
             className="form-control form-control-sm"
             placeholder="יום"
             style={{ width: "60px", ...borderlessInput }}
@@ -545,7 +555,14 @@ export function TransactionTable({
             }}
           />
         </div>
-        <div style={{ flex: COL.amount, minWidth: 0, display: "flex", alignItems: "center" }}>
+        <div
+          style={{
+            flex: COL.amount,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
           <button
             type="button"
             className={`tentative-prefix${form.tentative ? " active" : ""}`}
@@ -563,7 +580,9 @@ export function TransactionTable({
               ...borderlessInput,
               direction: "ltr",
               textAlign: "right",
-              ...(form.tentative ? { color: "#c2770e", fontStyle: "italic" } : {}),
+              ...(form.tentative
+                ? { color: "#c2770e", fontStyle: "italic" }
+                : {}),
             }}
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -599,7 +618,7 @@ export function TransactionTable({
               className="btn btn-sm btn-link text-danger p-0"
               onClick={(e) => {
                 e.stopPropagation();
-                handleDelete(editingRowRef.current!);
+                if (editingRow !== null) handleDelete(editingRow);
                 setEditingRow(null);
               }}
               title="מחיקה"
@@ -643,7 +662,9 @@ export function TransactionTable({
             {hasActiveFilters && " ●"}
           </button>
         </div>
-        <div className={`d-flex gap-2 flex-wrap tx-filter-dropdowns${showFilters ? "" : " d-none d-md-flex"}`}>
+        <div
+          className={`d-flex gap-2 flex-wrap tx-filter-dropdowns${showFilters ? "" : " d-none d-md-flex"}`}
+        >
           <div style={{ minWidth: 140, maxWidth: 220 }}>
             <MultiSearchableSelect
               options={activeCategories}
@@ -749,7 +770,15 @@ export function TransactionTable({
       </div>
 
       {/* Add row */}
-      {renderInputRow("add", addForm, setAddForm, handleAdd, "הוסף", undefined, undefined, undefined, addDayInputRef)}
+      {renderInputRow(
+        "add",
+        addForm,
+        setAddForm,
+        handleAdd,
+        "הוסף",
+        undefined,
+        undefined,
+      )}
 
       {/* Transaction rows */}
       {filteredRows.map((t) =>
@@ -762,7 +791,6 @@ export function TransactionTable({
             "שמור",
             () => setEditingRow(null),
             "tx-row-edit",
-            editRowRef,
           )
         ) : (
           <div key={t.row}>
@@ -770,139 +798,187 @@ export function TransactionTable({
             {(() => {
               const isAutoVacation = t.notes.startsWith("auto:vacation:");
               return (
-            <div
-              className={`tx-row d-none d-md-flex${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
-              onDoubleClick={() => !isAutoVacation && startEdit(t)}
-              style={t.row < 0 ? { opacity: 0.5 } : isAutoVacation ? { backgroundColor: "#f0f7ff" } : undefined}
-            >
-              {t.row >= 0 && !isAutoVacation && (
-                <div className="tx-check-overlay">
-                  <input
-                    type="checkbox"
-                    className="form-check-input m-0"
-                    checked={selectedRows.has(t.row)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleRow(t.row, e.shiftKey);
-                    }}
-                    readOnly
-                  />
+                <div
+                  className={`tx-row d-none d-md-flex${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}${selectedRows.size > 0 ? " tx-has-selection" : ""}`}
+                  onDoubleClick={() => !isAutoVacation && startEdit(t)}
+                  style={
+                    t.row < 0
+                      ? { opacity: 0.5 }
+                      : isAutoVacation
+                        ? { backgroundColor: "#f0f7ff" }
+                        : undefined
+                  }
+                >
+                  {t.row >= 0 && !isAutoVacation && (
+                    <div className="tx-check-overlay">
+                      <input
+                        type="checkbox"
+                        className="form-check-input m-0"
+                        checked={selectedRows.has(t.row)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleRow(t.row, e.shiftKey);
+                        }}
+                        readOnly
+                      />
+                    </div>
+                  )}
+                  <div
+                    className="text-secondary small"
+                    style={{ flex: COL.date }}
+                  >
+                    {formatDateDisplay(t.date)}
+                  </div>
+                  <div style={{ flex: COL.expense }}>
+                    {isAutoVacation ? (
+                      <span className="d-flex align-items-center gap-1">
+                        <span style={{ fontSize: "0.75em" }}>✈️</span>
+                        {t.expense}
+                      </span>
+                    ) : (
+                      t.expense
+                    )}
+                  </div>
+                  <div style={{ flex: COL.amount }}>
+                    <span
+                      className={
+                        t.tentative ? "tx-amount-tentative" : undefined
+                      }
+                    >
+                      {t.amount !== 0 ? formatCurrency(t.amount) : ""}
+                    </span>
+                  </div>
+                  <div style={{ flex: COL.category }}>
+                    <span
+                      className="badge rounded-pill"
+                      style={{
+                        backgroundColor: colorMap[t.category] || "#6c757d",
+                      }}
+                    >
+                      {t.category}
+                    </span>
+                  </div>
+                  <div style={{ flex: COL.card }}>
+                    <span
+                      className="badge rounded-pill"
+                      style={{
+                        backgroundColor: cardColorMap?.[t.card] || "#6c757d",
+                      }}
+                    >
+                      {t.card}
+                    </span>
+                  </div>
                 </div>
-              )}
-              <div className="text-secondary small" style={{ flex: COL.date }}>
-                {formatDateDisplay(t.date)}
-              </div>
-              <div style={{ flex: COL.expense }}>
-                {isAutoVacation ? (
-                  <span className="d-flex align-items-center gap-1">
-                    <span style={{ fontSize: "0.75em" }}>✈️</span>
-                    {t.expense}
-                  </span>
-                ) : t.expense}
-              </div>
-              <div style={{ flex: COL.amount }}>
-                <span className={t.tentative ? "tx-amount-tentative" : undefined}>
-                  {t.amount !== 0 ? formatCurrency(t.amount) : ""}
-                </span>
-              </div>
-              <div style={{ flex: COL.category }}>
-                <span
-                  className="badge rounded-pill"
-                  style={{
-                    backgroundColor: colorMap[t.category] || "#6c757d",
-                  }}
-                >
-                  {t.category}
-                </span>
-              </div>
-              <div style={{ flex: COL.card }}>
-                <span
-                  className="badge rounded-pill"
-                  style={{
-                    backgroundColor: cardColorMap?.[t.card] || "#6c757d",
-                  }}
-                >
-                  {t.card}
-                </span>
-              </div>
-            </div>
               );
             })()}
 
             {/* Mobile card */}
-            {(() => { const isAutoVacation = t.notes.startsWith("auto:vacation:"); return (
-            <div
-              className={`tx-mobile-card d-md-none${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}`}
-              onClick={() => {
-                if (isAutoVacation) return;
-                if (selectedRows.size > 0 && t.row >= 0) {
-                  toggleRow(t.row, false);
-                } else {
-                  startEdit(t);
-                }
-              }}
-              onTouchStart={(e) => {
-                if (t.row < 0 || isAutoVacation) return;
-                const touch = e.touches[0];
-                swipeRef.current = { startX: touch.clientX, row: t.row, el: e.currentTarget };
-              }}
-              onTouchMove={(e) => {
-                const sw = swipeRef.current;
-                if (!sw || !sw.el) return;
-                const dx = e.touches[0].clientX - sw.startX;
-                // RTL: swipe left (negative dx) to select
-                if (dx < -30) {
-                  sw.el.classList.add("tx-swiping");
-                  sw.el.style.transform = `translateX(${Math.max(dx, -60)}px)`;
-                } else {
-                  sw.el.classList.remove("tx-swiping");
-                  sw.el.style.transform = "";
-                }
-              }}
-              onTouchEnd={() => {
-                const sw = swipeRef.current;
-                if (!sw || !sw.el) return;
-                const wasSwiping = sw.el.classList.contains("tx-swiping");
-                sw.el.classList.remove("tx-swiping");
-                sw.el.style.transform = "";
-                if (wasSwiping) {
-                  toggleRow(sw.row, false);
-                }
-                swipeRef.current = null;
-              }}
-              style={t.row < 0 ? { opacity: 0.5 } : isAutoVacation ? { backgroundColor: "#f0f7ff" } : undefined}
-            >
-              <div className="d-flex justify-content-between align-items-start">
-                <span className="fw-medium">
-                  {isAutoVacation ? <><span style={{ fontSize: "0.75em" }}>✈️</span> {t.expense}</> : t.expense}
-                </span>
-                <span className={t.tentative ? "tx-amount-tentative" : "fw-bold"}>
-                  {t.amount !== 0 ? formatCurrency(t.amount) : ""}
-                </span>
-              </div>
-              <div className="d-flex justify-content-between align-items-center mt-1">
-                <span className="text-secondary small">{formatDateDisplay(t.date)}</span>
-                <div className="d-flex gap-1">
-                  {t.category && (
-                    <span
-                      className="badge rounded-pill"
-                      style={{ backgroundColor: colorMap[t.category] || "#6c757d", fontSize: "0.7rem" }}
-                    >
-                      {t.category}
+            {(() => {
+              const isAutoVacation = t.notes.startsWith("auto:vacation:");
+              return (
+                <div
+                  className={`tx-mobile-card d-md-none${t.tentative ? " tx-row-tentative" : ""}${selectedRows.has(t.row) ? " tx-row-selected" : ""}`}
+                  onClick={() => {
+                    if (isAutoVacation) return;
+                    if (selectedRows.size > 0 && t.row >= 0) {
+                      toggleRow(t.row, false);
+                    } else {
+                      startEdit(t);
+                    }
+                  }}
+                  onTouchStart={(e) => {
+                    if (t.row < 0 || isAutoVacation) return;
+                    const touch = e.touches[0];
+                    swipeRef.current = {
+                      startX: touch.clientX,
+                      row: t.row,
+                      el: e.currentTarget,
+                    };
+                  }}
+                  onTouchMove={(e) => {
+                    const sw = swipeRef.current;
+                    if (!sw || !sw.el) return;
+                    const dx = e.touches[0].clientX - sw.startX;
+                    // RTL: swipe left (negative dx) to select
+                    if (dx < -30) {
+                      sw.el.classList.add("tx-swiping");
+                      sw.el.style.transform = `translateX(${Math.max(dx, -60)}px)`;
+                    } else {
+                      sw.el.classList.remove("tx-swiping");
+                      sw.el.style.transform = "";
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    const sw = swipeRef.current;
+                    if (!sw || !sw.el) return;
+                    const wasSwiping = sw.el.classList.contains("tx-swiping");
+                    sw.el.classList.remove("tx-swiping");
+                    sw.el.style.transform = "";
+                    if (wasSwiping) {
+                      toggleRow(sw.row, false);
+                    }
+                    swipeRef.current = null;
+                  }}
+                  style={
+                    t.row < 0
+                      ? { opacity: 0.5 }
+                      : isAutoVacation
+                        ? { backgroundColor: "#f0f7ff" }
+                        : undefined
+                  }
+                >
+                  <div className="d-flex justify-content-between align-items-start">
+                    <span className="fw-medium">
+                      {isAutoVacation ? (
+                        <>
+                          <span style={{ fontSize: "0.75em" }}>✈️</span>{" "}
+                          {t.expense}
+                        </>
+                      ) : (
+                        t.expense
+                      )}
                     </span>
-                  )}
-                  {t.card && (
                     <span
-                      className="badge rounded-pill"
-                      style={{ backgroundColor: cardColorMap?.[t.card] || "#6c757d", fontSize: "0.7rem" }}
+                      className={
+                        t.tentative ? "tx-amount-tentative" : "fw-bold"
+                      }
                     >
-                      {t.card}
+                      {t.amount !== 0 ? formatCurrency(t.amount) : ""}
                     </span>
-                  )}
+                  </div>
+                  <div className="d-flex justify-content-between align-items-center mt-1">
+                    <span className="text-secondary small">
+                      {formatDateDisplay(t.date)}
+                    </span>
+                    <div className="d-flex gap-1">
+                      {t.category && (
+                        <span
+                          className="badge rounded-pill"
+                          style={{
+                            backgroundColor: colorMap[t.category] || "#6c757d",
+                            fontSize: "0.7rem",
+                          }}
+                        >
+                          {t.category}
+                        </span>
+                      )}
+                      {t.card && (
+                        <span
+                          className="badge rounded-pill"
+                          style={{
+                            backgroundColor:
+                              cardColorMap?.[t.card] || "#6c757d",
+                            fontSize: "0.7rem",
+                          }}
+                        >
+                          {t.card}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            ); })()}
+              );
+            })()}
           </div>
         ),
       )}
@@ -970,7 +1046,9 @@ export function TransactionTable({
               >
                 <option value="">✈ טיול...</option>
                 {vacationSheets.map((vs) => (
-                  <option key={vs.sheetId} value={vs.title}>{vs.title}</option>
+                  <option key={vs.sheetId} value={vs.title}>
+                    {vs.title}
+                  </option>
                 ))}
               </select>
               <button
@@ -1005,13 +1083,28 @@ export function TransactionTable({
       {/* Mobile bottom-sheet */}
       {showMobileAdd && (
         <>
-          <div className="tx-bottom-sheet-backdrop" onClick={() => setShowMobileAdd(false)} />
-          <div className="tx-bottom-sheet">
+          <button
+            className="tx-bottom-sheet-backdrop"
+            onClick={() => setShowMobileAdd(false)}
+            aria-label="סגירת טופס הוצאה"
+            type="button"
+          />
+          <div
+            className="tx-bottom-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={mobileSheetTitleId}
+          >
             <div className="d-flex justify-content-between align-items-center mb-3">
-              <h6 className="fw-bold mb-0">הוצאה חדשה</h6>
+              <h6 className="fw-bold mb-0" id={mobileSheetTitleId}>
+                הוצאה חדשה
+              </h6>
               <button
+                ref={mobileSheetCloseRef}
                 className="btn btn-sm btn-link text-secondary p-0"
                 onClick={() => setShowMobileAdd(false)}
+                type="button"
+                aria-label="סגירת טופס הוצאה"
               >
                 ✕
               </button>
@@ -1020,19 +1113,29 @@ export function TransactionTable({
               <input
                 className="form-control form-control-sm"
                 placeholder="יום"
+                aria-label="יום בחודש"
                 style={{ width: "70px", flexShrink: 0 }}
                 value={mobileAddForm.day}
-                onChange={(e) => setMobileAddForm({ ...mobileAddForm, day: e.target.value })}
+                onChange={(e) =>
+                  setMobileAddForm({ ...mobileAddForm, day: e.target.value })
+                }
               />
               <input
                 className="form-control form-control-sm"
                 placeholder="הוצאה"
+                aria-label="שם ההוצאה"
                 value={mobileAddForm.expense}
-                onChange={(e) => setMobileAddForm({ ...mobileAddForm, expense: e.target.value })}
+                onChange={(e) =>
+                  setMobileAddForm({
+                    ...mobileAddForm,
+                    expense: e.target.value,
+                  })
+                }
                 onBlur={(e) => {
                   if (!mobileAddForm.category && !isVacation) {
                     const mapped = lookupCategoryMapping(e.target.value);
-                    if (mapped) setMobileAddForm({ ...mobileAddForm, category: mapped });
+                    if (mapped)
+                      setMobileAddForm({ ...mobileAddForm, category: mapped });
                   }
                 }}
               />
@@ -1041,8 +1144,15 @@ export function TransactionTable({
               <button
                 type="button"
                 className={`tentative-prefix${mobileAddForm.tentative ? " active" : ""}`}
-                onClick={() => setMobileAddForm({ ...mobileAddForm, tentative: !mobileAddForm.tentative })}
+                onClick={() =>
+                  setMobileAddForm({
+                    ...mobileAddForm,
+                    tentative: !mobileAddForm.tentative,
+                  })
+                }
                 title="משוער"
+                aria-label="סכום משוער"
+                aria-pressed={mobileAddForm.tentative}
               >
                 ~
               </button>
@@ -1051,13 +1161,18 @@ export function TransactionTable({
                 inputMode="decimal"
                 className="form-control form-control-sm"
                 placeholder="סכום"
+                aria-label="סכום ההוצאה"
                 style={{
                   direction: "ltr",
                   textAlign: "right",
-                  ...(mobileAddForm.tentative ? { color: "#c2770e", fontStyle: "italic" } : {}),
+                  ...(mobileAddForm.tentative
+                    ? { color: "#c2770e", fontStyle: "italic" }
+                    : {}),
                 }}
                 value={mobileAddForm.amount}
-                onChange={(e) => setMobileAddForm({ ...mobileAddForm, amount: e.target.value })}
+                onChange={(e) =>
+                  setMobileAddForm({ ...mobileAddForm, amount: e.target.value })
+                }
               />
             </div>
             <div className="d-flex gap-2 mb-3">
@@ -1066,7 +1181,9 @@ export function TransactionTable({
                   options={categories}
                   colorMap={colorMap}
                   value={mobileAddForm.category}
-                  onChange={(val) => setMobileAddForm({ ...mobileAddForm, category: val })}
+                  onChange={(val) =>
+                    setMobileAddForm({ ...mobileAddForm, category: val })
+                  }
                   placeholder="קטגוריה"
                 />
               </div>
@@ -1075,12 +1192,18 @@ export function TransactionTable({
                   options={cards}
                   colorMap={cardColorMap ?? {}}
                   value={mobileAddForm.card}
-                  onChange={(val) => setMobileAddForm({ ...mobileAddForm, card: val })}
+                  onChange={(val) =>
+                    setMobileAddForm({ ...mobileAddForm, card: val })
+                  }
                   placeholder="כרטיס"
                 />
               </div>
             </div>
-            <button className="btn btn-success w-100" onClick={handleMobileAdd}>
+            <button
+              className="btn btn-success w-100"
+              onClick={handleMobileAdd}
+              type="button"
+            >
               הוסף
             </button>
           </div>

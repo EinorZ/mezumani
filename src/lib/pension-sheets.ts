@@ -1,25 +1,28 @@
-import { google } from "googleapis";
+import {
+  getGoogleSheetsClient,
+  pensionSpreadsheetId,
+} from "@/server/persistence/google-sheets-client";
 import type { PensionFund, PensionOwner, PensionFundType } from "./types";
 import { parseNumber } from "./utils";
 
-const PENSION_SPREADSHEET_ID = process.env.GOOGLE_STOCKS_SPREADSHEET_ID!;
+const PENSION_SPREADSHEET_ID = pensionSpreadsheetId;
 
 export const PENSION_SHEET_NAME = "חיסכון";
 
 // Columns: A=Owner, B=Name, C=Type, D=Track, E=Balance, F=LastUpdated, G=Company
-const PENSION_HEADERS = ["בעלים", "שם הקרן", "סוג", "מסלול", "יתרה", "עדכון אחרון", "חברה"];
+const PENSION_HEADERS = [
+  "בעלים",
+  "שם הקרן",
+  "סוג",
+  "מסלול",
+  "יתרה",
+  "עדכון אחרון",
+  "חברה",
+];
 const HISTORY_SHEET_NAME = "היסטוריית חיסכון";
 
-function getAuth() {
-  return new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-}
-
 function getSheets() {
-  return google.sheets({ version: "v4", auth: getAuth() });
+  return getGoogleSheetsClient();
 }
 
 export async function ensurePensionSheet(): Promise<void> {
@@ -29,15 +32,21 @@ export async function ensurePensionSheet(): Promise<void> {
     fields: "sheets.properties(sheetId,title)",
   });
   const allSheets = res.data.sheets ?? [];
-  const exists = allSheets.some((s) => s.properties?.title === PENSION_SHEET_NAME);
+  const exists = allSheets.some(
+    (s) => s.properties?.title === PENSION_SHEET_NAME,
+  );
 
   // Delete legacy history sheet if it exists
-  const historySheet = allSheets.find((s) => s.properties?.title === HISTORY_SHEET_NAME);
+  const historySheet = allSheets.find(
+    (s) => s.properties?.title === HISTORY_SHEET_NAME,
+  );
   if (historySheet?.properties?.sheetId != null) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: PENSION_SPREADSHEET_ID,
       requestBody: {
-        requests: [{ deleteSheet: { sheetId: historySheet.properties.sheetId } }],
+        requests: [
+          { deleteSheet: { sheetId: historySheet.properties.sheetId } },
+        ],
       },
     });
   }
@@ -49,10 +58,17 @@ export async function ensurePensionSheet(): Promise<void> {
     const addRes = await sheets.spreadsheets.batchUpdate({
       spreadsheetId: PENSION_SPREADSHEET_ID,
       requestBody: {
-        requests: [{ addSheet: { properties: { title: PENSION_SHEET_NAME, rightToLeft: true } } }],
+        requests: [
+          {
+            addSheet: {
+              properties: { title: PENSION_SHEET_NAME, rightToLeft: true },
+            },
+          },
+        ],
       },
     });
-    newSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId ?? undefined;
+    newSheetId =
+      addRes.data.replies?.[0]?.addSheet?.properties?.sheetId ?? undefined;
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes("already exists")) return;
     throw err;
@@ -72,7 +88,10 @@ export async function ensurePensionSheet(): Promise<void> {
         requests: [
           {
             updateSheetProperties: {
-              properties: { sheetId: newSheetId, gridProperties: { frozenRowCount: 1 } },
+              properties: {
+                sheetId: newSheetId,
+                gridProperties: { frozenRowCount: 1 },
+              },
               fields: "gridProperties.frozenRowCount",
             },
           },
@@ -132,7 +151,9 @@ export async function addPensionFund(
     spreadsheetId: PENSION_SPREADSHEET_ID,
     range: `'${PENSION_SHEET_NAME}'!A${row}:G${row}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date, company]] },
+    requestBody: {
+      values: [[owner, name, type, track, balance.toFixed(2), date, company]],
+    },
   });
   return row;
 }
@@ -152,7 +173,9 @@ export async function updatePensionFund(
     spreadsheetId: PENSION_SPREADSHEET_ID,
     range: `'${PENSION_SHEET_NAME}'!A${row}:G${row}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[owner, name, type, track, balance.toFixed(2), date, company]] },
+    requestBody: {
+      values: [[owner, name, type, track, balance.toFixed(2), date, company]],
+    },
   });
 }
 

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///Users/einorzangi/dev/mezumani/src/app/error.tsx"],"sourcesContent":["\"use client\";\n\nexport default function Error({\n  error,\n  reset,\n}: {\n  error: Error;\n  reset: () => void;\n}) {\n  return (\n    <div\n      className=\"d-flex flex-column align-items-center justify-content-center gap-3\"\n      style={{ minHeight: \"100vh\" }}\n    >\n      <h2 className=\"h5 fw-bold\">שגיאה</h2>\n      <p className=\"text-secondary\">{error.message}</p>\n      <button className=\"btn btn-success\" onClick={reset}>\n        נסה שוב\n      </button>\n    </div>\n  );\n}\n"],"names":[],"mappings":";;;;;AAAA;;AAEe,SAAS,MAAM,EAC5B,KAAK,EACL,KAAK,EAIN;IACC,qBACE,gNAAC;QACC,WAAU;QACV,OAAO;YAAE,WAAW;QAAQ;;0BAE5B,gNAAC;gBAAG,WAAU;0BAAa;;;;;;0BAC3B,gNAAC;gBAAE,WAAU;0BAAkB,MAAM,OAAO;;;;;;0BAC5C,gNAAC;gBAAO,WAAU;gBAAkB,SAAS;0BAAO;;;;;;;;;;;;AAK1D;KAnBwB"}}]
+}

@@ -29,13 +29,14 @@ import { usePageRefresh } from "@/hooks/use-page-refresh";
 
 interface Props {
   data: NvidiaCompensationData;
+  renderedAt: string;
 }
 
 function formatUsd(amount: number): string {
   return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function NvidiaDashboard({ data }: Props) {
+export function NvidiaDashboard({ data, renderedAt }: Props) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelMode, setPanelMode] = useState<NvidiaPanelMode>("addRsuGrant");
   const [panelEditData, setPanelEditData] = useState<Record<string, unknown>>(
@@ -67,7 +68,7 @@ export function NvidiaDashboard({ data }: Props) {
 
   const lastUpdatedDate = new Date(data.lastUpdated);
   const minutesAgo = Math.floor(
-    (Date.now() - lastUpdatedDate.getTime()) / 60000,
+    (new Date(renderedAt).getTime() - lastUpdatedDate.getTime()) / 60000,
   );
 
   return (

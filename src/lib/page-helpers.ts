@@ -1,22 +1,5 @@
-import { getAppConfig } from "@/lib/google-sheets";
-import {
-  getCategoryNames,
-  buildCategoryColorMap,
-  buildCardsWithOwner,
-  getCardOwner,
-  CARD_OWNER_COLORS,
-} from "@/lib/utils";
+import { getCategoryNames, getCardOwner, CARD_OWNER_COLORS } from "@/lib/utils";
 import type { Transaction, AppConfig } from "@/lib/types";
-
-export async function loadPageConfig() {
-  const config = await getAppConfig();
-  const { cards: allCards, cardColorMap } = buildCardsWithOwner(config);
-  const colorMap = buildCategoryColorMap(
-    config.monthlyCategories,
-    config.vacationCategories,
-  );
-  return { config, allCards, cardColorMap, colorMap };
-}
 
 export function ensureTransactionCardColors(
   transactions: Transaction[],

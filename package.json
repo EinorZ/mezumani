@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "test": "node --require ./scripts/register-typescript.cjs --test src/**/*.test.ts",
-    "lint": "eslint",
-    "lint:fix": "eslint --fix",
+    "typecheck": "tsc --noEmit --incremental false",
+    "lint": "eslint src scripts next.config.ts eslint.config.mjs --max-warnings 0",
+    "lint:fix": "eslint src scripts next.config.ts eslint.config.mjs --fix",
+    "check": "npm run test && npm run typecheck && npm run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

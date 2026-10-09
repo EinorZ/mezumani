@@ -114,6 +114,11 @@ export interface ExpenseRenameRule {
   targetName: string; // renamed expense, e.g. "סופרמרקט"
 }
 
+export interface CardLastFourMapping {
+  card: string;
+  lastFour: string;
+}
+
 export interface IncomeSource {
   name: string;
   amount: number;
@@ -129,6 +134,7 @@ export interface AppConfig {
   recurringExpenses: RecurringExpense[];
   categoryMappings: CategoryMapping[];
   expenseRenameRules: ExpenseRenameRule[];
+  cardLastFourMappings: CardLastFourMapping[];
   incomeSources: IncomeSource[];
   annualGoals: Record<string, number>;
   irregularExpenseCategoriesByYear: Record<string, string[]>;

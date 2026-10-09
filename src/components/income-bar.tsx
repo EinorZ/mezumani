@@ -9,17 +9,17 @@ interface Props {
   totalIncome: number;
   totalExpenses: number;
   sheetTitle: string;
-  onUpdateIncome: (sheetTitle: string, entries: IncomeSource[]) => Promise<void>;
+  onUpdateIncome: (
+    sheetTitle: string,
+    entries: IncomeSource[],
+  ) => Promise<void>;
 }
 
-export function IncomeTable({
-  income,
-  totalExpenses,
-  sheetTitle,
-  onUpdateIncome,
-}: Props) {
+export function IncomeTable({ income, sheetTitle, onUpdateIncome }: Props) {
   const [entries, setEntries] = useState<IncomeSource[]>(income);
-  useEffect(() => { setEntries(income); }, [income]);
+  useEffect(() => {
+    setEntries(income);
+  }, [income]);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);

@@ -1,6 +1,7 @@
 export default function NvidiaLoading() {
   return (
-    <div className="container-fluid px-4 py-3">
+    <div className="page-shell" aria-busy="true" aria-live="polite">
+      <span className="visually-hidden">טוען את נתוני NVIDIA</span>
       <div className="page-header mb-4">
         <div
           className="shimmer"

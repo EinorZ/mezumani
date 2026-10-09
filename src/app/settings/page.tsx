@@ -1,4 +1,4 @@
-import { getAppConfig, getStockConfig } from "@/lib/google-sheets";
+import { loadSettingsPage } from "@/server/queries";
 import {
   addCategory,
   removeCategory,
@@ -19,6 +19,8 @@ import {
   addExpenseRenameRuleAction,
   updateExpenseRenameRuleAction,
   removeExpenseRenameRuleAction,
+  setCardLastFourMappingAction,
+  removeCardLastFourMappingAction,
   addIncome,
   updateIncome,
   removeIncome,
@@ -51,6 +53,7 @@ import { BrokerList } from "@/components/broker-list";
 import { StockGoalList } from "@/components/stock-goal-list";
 import { LabelColorList } from "@/components/label-color-list";
 import { AnnualGoalsTable } from "@/components/annual-goals-table";
+import { CardLastFourMappingList } from "@/components/card-last-four-mapping-list";
 
 const cardGroups = [
   { key: "shared" as const, label: "משותף", color: CARD_OWNER_COLORS.shared },
@@ -59,10 +62,7 @@ const cardGroups = [
 ];
 
 export default async function SettingsPage() {
-  const [config, stockConfig] = await Promise.all([
-    getAppConfig(),
-    getStockConfig(),
-  ]);
+  const { config, stockConfig } = await loadSettingsPage();
 
   const cardData = {
     einor: config.cardsEinor,
@@ -74,7 +74,7 @@ export default async function SettingsPage() {
   const { cards: allCards, cardColorMap } = buildCardsWithOwner(config);
 
   return (
-    <div className="container-fluid px-4 py-3">
+    <div className="page-shell">
       <div className="page-header mb-4">
         <h1 className="h4 fw-bold mb-1">הגדרות</h1>
         <p className="text-muted mb-0" style={{ fontSize: "0.85rem" }}>
@@ -327,6 +327,27 @@ export default async function SettingsPage() {
             onReorder={async (items) => {
               "use server";
               await reorderRecurring(items);
+            }}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          title="זיהוי כרטיס מקובץ אקסל"
+          icon="&#128179;"
+          description="מיפוי ארבע הספרות בתחילת שם הקובץ לכרטיס"
+          accentColor="#198754"
+        >
+          <CardLastFourMappingList
+            items={config.cardLastFourMappings}
+            cards={allCards}
+            cardColorMap={cardColorMap}
+            onSave={async (card, lastFour) => {
+              "use server";
+              await setCardLastFourMappingAction(card, lastFour);
+            }}
+            onRemove={async (card) => {
+              "use server";
+              await removeCardLastFourMappingAction(card);
             }}
           />
         </CollapsibleSection>

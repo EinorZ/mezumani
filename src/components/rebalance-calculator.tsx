@@ -1,13 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Calculator,
-  Save,
-  Plus,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { Calculator, Save, Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import type { StockHolding, StockConfig } from "@/lib/types";
 import { useRebalanceCalculator } from "@/hooks/use-rebalance-calculator";
@@ -23,11 +17,18 @@ function formatNum(n: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Props) {
+export function RebalanceCalculator({
+  holdings,
+  config,
+  priceBySymbolILS,
+}: Props) {
   const [open, setOpen] = useState(false);
 
   const rawPriceBySymbol = Object.fromEntries(
-    holdings.map((h) => [h.symbol, { raw: h.currentPriceRaw, currency: h.currency }])
+    holdings.map((h) => [
+      h.symbol,
+      { raw: h.currentPriceRaw, currency: h.currency },
+    ]),
   );
 
   const {
@@ -37,7 +38,6 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
     setInvestmentAmount,
     selectedStocks,
     saveStatus,
-    isManuallyAdjusted,
     setIsManuallyAdjusted,
     showAddMenu,
     setShowAddMenu,
@@ -51,7 +51,6 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
     tableRows,
     handleShareCountChange,
     handleAllocChange,
-    handleAmountChange,
     handleStockChange,
     addLabel,
     removeLabel,
@@ -83,8 +82,7 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
         <div className="p-3">
           {allLabels.length === 0 ? (
             <div className="text-muted small text-center py-4">
-              אין תוויות מוגדרות למניות. הגדר תוויות בהגדרות כדי להשתמש
-              במחשבון.
+              אין תוויות מוגדרות למניות. הגדר תוויות בהגדרות כדי להשתמש במחשבון.
             </div>
           ) : (
             <>
@@ -270,9 +268,7 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
                         </th>
                         <th className="fw-semibold pb-3 text-center">כמות</th>
                         <th className="fw-semibold pb-3 text-center">עלות</th>
-                        <th className="fw-semibold pb-3 text-center">
-                          % חדש
-                        </th>
+                        <th className="fw-semibold pb-3 text-center">% חדש</th>
                         <th className="fw-semibold pb-3 text-end">% יעד</th>
                       </tr>
                     </thead>
@@ -297,18 +293,26 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
                                 dir="ltr"
                               >
                                 {selectedStocks[row.label]}
-                                {row.stockPrice > 0 && (() => {
-                                  const info = rawPriceBySymbol[selectedStocks[row.label]];
-                                  return (
-                                    <span className="text-muted ms-1">
-                                      ({formatCurrency(row.stockPrice)}/unit
-                                      {info?.currency === "USD" && info.raw > 0 && (
-                                        <span> · ${info.raw.toFixed(2)}</span>
-                                      )}
-                                      )
-                                    </span>
-                                  );
-                                })()}
+                                {row.stockPrice > 0 &&
+                                  (() => {
+                                    const info =
+                                      rawPriceBySymbol[
+                                        selectedStocks[row.label]
+                                      ];
+                                    return (
+                                      <span className="text-muted ms-1">
+                                        ({formatCurrency(row.stockPrice)}/unit
+                                        {info?.currency === "USD" &&
+                                          info.raw > 0 && (
+                                            <span>
+                                              {" "}
+                                              · ${info.raw.toFixed(2)}
+                                            </span>
+                                          )}
+                                        )
+                                      </span>
+                                    );
+                                  })()}
                               </div>
                             )}
                             <div
@@ -342,10 +346,7 @@ export function RebalanceCalculator({ holdings, config, priceBySymbolILS }: Prop
                                     /[^0-9]/g,
                                     "",
                                   );
-                                  handleShareCountChange(
-                                    row.label,
-                                    raw,
-                                  );
+                                  handleShareCountChange(row.label, raw);
                                 }}
                               />
                             ) : investment > 0 ? (

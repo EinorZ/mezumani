@@ -1,6 +1,7 @@
 export default function StocksLoading() {
   return (
-    <div className="container-fluid px-4 py-3">
+    <div className="page-shell" aria-busy="true" aria-live="polite">
+      <span className="visually-hidden">טוען את תיק המניות</span>
       <div className="page-header mb-4">
         <div
           className="shimmer"

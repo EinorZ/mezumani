@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 /**
  * Returns a debounced version of `fn` that only fires after `delay` ms
@@ -12,7 +12,17 @@ export function useDebouncedCallback<T extends unknown[]>(
 ): (...args: T) => void {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+
+  useEffect(() => {
+    fnRef.current = fn;
+  }, [fn]);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   return useCallback(
     (...args: T) => {

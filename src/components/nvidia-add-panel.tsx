@@ -23,7 +23,7 @@ const PANEL_TITLES: Record<NvidiaPanelMode, string> = {
 const CALC_MODES: NvidiaPanelMode[] = ["calcSell"];
 
 export function NvidiaAddPanel({ mode, editData = {}, onClose }: Props) {
-  const [_submitting, setSubmitting] = useState(false);
+  const [, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const isCalcMode = CALC_MODES.includes(mode);

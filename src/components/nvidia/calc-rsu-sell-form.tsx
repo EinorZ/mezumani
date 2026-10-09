@@ -9,6 +9,7 @@ import {
   isFutureDate,
   isMatured,
   isVestComingSoon,
+  getLatestPendingMaturationDate,
 } from "@/lib/nvidia-utils";
 import type { useYearlyGross } from "@/hooks/use-yearly-gross";
 import type { RsuGrant } from "@/lib/types";
@@ -59,7 +60,8 @@ export function CalcRsuSellForm({
         .filter((v) => !v.sold && v.shares > 0)
         .map((v) => {
           const future = isFutureDate(v.vestDate);
-          const matured = !future && isMatured(v.grantDate);
+          const section102Matured = isMatured(v.grantDate);
+          const matured = !future && section102Matured;
           const comingSoon =
             !future && !matured && isGrantMaturationComingSoon(v.grantDate);
           const vestComingSoon = future && isVestComingSoon(v.vestDate);
@@ -68,6 +70,7 @@ export function CalcRsuSellForm({
             grantName: g.grantName || v.grantDate,
             future,
             matured,
+            section102Matured,
             comingSoon,
             vestComingSoon,
           };
@@ -200,17 +203,19 @@ export function CalcRsuSellForm({
         feesIls: 0,
         yearlyGross,
         sellPriceUsd: sp,
-        grantDate: vest.matured ? vest.grantDate : undefined,
-        sellDate: vest.matured ? toSheetDate(sellDate) : undefined,
+        grantDate: vest.grantDate,
+        sellDate: toSheetDate(sellDate),
       });
-      const agg = vest.matured ? maturedAgg : unmaturedAgg;
+      const agg = vest.section102Matured ? maturedAgg : unmaturedAgg;
       const vestProceeds = vest.shares * sp * rate;
       agg.proceeds += vestProceeds;
       agg.capGains += r.capitalGainsTax;
       agg.tax += r.capitalGainsTax;
       agg.net += vestProceeds - r.capitalGainsTax;
-      agg.employmentIncome += vest.matured ? r.vestIncomeIls : vestProceeds;
-      agg.capitalIncome += vest.matured
+      agg.employmentIncome += vest.section102Matured
+        ? r.vestIncomeIls
+        : vestProceeds;
+      agg.capitalIncome += vest.section102Matured
         ? Math.max(0, vestProceeds - r.vestIncomeIls)
         : 0;
     }
@@ -234,23 +239,15 @@ export function CalcRsuSellForm({
       capitalIncome: maturedAgg.capitalIncome + unmaturedAgg.capitalIncome,
     };
 
-    let latestMatDate: Date | null = null;
-    for (const vest of selectedVests) {
-      if (!vest.matured) {
-        const parts = vest.grantDate.split("/");
-        if (parts.length >= 3) {
-          let y = parseInt(parts[2], 10);
-          if (y < 100) y += 2000;
-          const g = new Date(
-            y,
-            parseInt(parts[1], 10) - 1,
-            parseInt(parts[0], 10),
-          );
-          g.setMonth(g.getMonth() + MATURATION_MONTHS);
-          if (!latestMatDate || g > latestMatDate) latestMatDate = g;
-        }
-      }
-    }
+    const [saleYear, saleMonth, saleDay] = sellDate.split("-").map(Number);
+    const saleDateValue = new Date(saleYear, saleMonth - 1, saleDay);
+    const latestMatDate = getLatestPendingMaturationDate(
+      selectedVests.map((vest) => vest.grantDate),
+      saleDateValue,
+    );
+    const allMaturationPeriodsPassed = selectedVests.every(
+      (vest) => vest.section102Matured,
+    );
 
     let waitScenario: {
       agg: Agg;
@@ -296,6 +293,7 @@ export function CalcRsuSellForm({
       combined,
       anyMatured,
       anyUnmatured,
+      allMaturationPeriodsPassed,
       waitScenario,
     };
   }, [selectedVests, sellPrice, usdRate, yearlyGross, sellDate]);
@@ -499,6 +497,18 @@ export function CalcRsuSellForm({
           <div className="border rounded p-3 bg-light mb-3">
             <h6 className="mb-2 d-flex align-items-center gap-2">
               מכור עכשיו
+              {result.allMaturationPeriodsPassed && (
+                <span
+                  className="badge fw-normal"
+                  style={{
+                    background: "#dcfce7",
+                    color: "#166534",
+                    fontSize: "0.72rem",
+                  }}
+                >
+                  עברו שנתיים (102)
+                </span>
+              )}
               {result.anyMatured && result.anyUnmatured && (
                 <span
                   className="badge fw-normal small"

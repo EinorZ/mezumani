@@ -34,6 +34,25 @@ export function getMaturationDate(grantDate: string): Date | null {
   return mat;
 }
 
+/** Return the latest Section 102 maturity date that is still after the sale date. */
+export function getLatestPendingMaturationDate(
+  grantDates: string[],
+  saleDate: Date = new Date(),
+): Date | null {
+  let latest: Date | null = null;
+  for (const grantDate of grantDates) {
+    const maturationDate = getMaturationDate(grantDate);
+    if (
+      maturationDate &&
+      maturationDate > saleDate &&
+      (!latest || maturationDate > latest)
+    ) {
+      latest = maturationDate;
+    }
+  }
+  return latest;
+}
+
 /**
  * Return true if the grant has passed its maturation period.
  */

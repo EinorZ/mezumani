@@ -1,12 +1,12 @@
 export const dynamic = "force-dynamic";
 
-import { getPensionData } from "@/lib/actions";
+import { loadPensionPage } from "@/server/queries";
 import { PensionDashboard } from "@/components/pension-dashboard";
 
 export default async function PensionPage() {
-  const data = await getPensionData();
+  const data = await loadPensionPage();
   return (
-    <div className="container-fluid px-4 py-3">
+    <div className="page-shell">
       <PensionDashboard data={data} />
     </div>
   );

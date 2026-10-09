@@ -1,9 +1,4 @@
-import { getVacationData, getSheetTitle } from "@/lib/google-sheets";
-import {
-  loadPageConfig,
-  getCategoryNames,
-  ensureTransactionCardColors,
-} from "@/lib/page-helpers";
+import { loadVacationPage } from "@/server/queries";
 import { TransactionTable } from "@/components/transaction-table";
 import { CategoryChart } from "@/components/category-chart";
 import { SummaryCards } from "@/components/summary-cards";
@@ -17,13 +12,15 @@ interface VacationPageProps {
 export default async function VacationPage({ params }: VacationPageProps) {
   const { id } = await params;
   const sheetId = parseInt(id, 10);
-  const title = await getSheetTitle(sheetId);
-
-  const [data, { config, allCards, cardColorMap, colorMap }] =
-    await Promise.all([getVacationData(title), loadPageConfig()]);
-
-  const vacCategoryNames = getCategoryNames(config.vacationCategories);
-  ensureTransactionCardColors(data.transactions, cardColorMap, config);
+  const {
+    allCards,
+    cardColorMap,
+    categoryNames,
+    colorMap,
+    config,
+    data,
+    title,
+  } = await loadVacationPage(sheetId);
 
   return (
     <PageConfigProvider
@@ -31,9 +28,9 @@ export default async function VacationPage({ params }: VacationPageProps) {
       allCards={allCards}
       colorMap={colorMap}
       cardColorMap={cardColorMap}
-      categoryNames={vacCategoryNames}
+      categoryNames={categoryNames}
     >
-      <div className="container-fluid px-4 py-3">
+      <div className="page-shell">
         <div className="page-header mb-4">
           <VacationTitleEditor sheetId={sheetId} title={title} pagePath={`/vacation/${id}`} />
         </div>

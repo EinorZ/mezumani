@@ -17,7 +17,20 @@ export function MultiSearchableSelect({
   onChange,
   placeholder,
 }: MultiSearchableSelectProps) {
-  const dd = useSearchableDropdown(options);
+  const {
+    open,
+    setOpen,
+    search,
+    setSearch,
+    dropUp,
+    highlightIndex,
+    setHighlightIndex,
+    containerRef,
+    inputRef,
+    listRef,
+    filtered,
+    handleKeyDown,
+  } = useSearchableDropdown(options);
 
   function toggleOption(val: string) {
     const next = new Set(selected);
@@ -30,8 +43,8 @@ export function MultiSearchableSelect({
   }
 
   return (
-    <div ref={dd.containerRef} style={{ position: "relative", minWidth: "120px" }}>
-      {selected.size > 0 && !dd.open ? (
+    <div ref={containerRef} style={{ position: "relative", minWidth: "120px" }}>
+      {selected.size > 0 && !open ? (
         <div
           style={{
             cursor: "pointer",
@@ -40,7 +53,7 @@ export function MultiSearchableSelect({
             gap: "4px",
             alignItems: "center",
           }}
-          onClick={() => dd.setOpen(true)}
+          onClick={() => setOpen(true)}
         >
           {[...selected].map((val) => (
             <span
@@ -63,24 +76,24 @@ export function MultiSearchableSelect({
         </div>
       ) : (
         <input
-          ref={dd.inputRef}
+          ref={inputRef}
           className="form-control form-control-sm"
           placeholder={placeholder}
-          value={dd.search}
+          value={search}
           onChange={(e) => {
-            dd.setSearch(e.target.value);
-            dd.setHighlightIndex(-1);
+            setSearch(e.target.value);
+            setHighlightIndex(-1);
           }}
-          onFocus={() => dd.setOpen(true)}
-          onKeyDown={(e) => dd.handleKeyDown(e, toggleOption)}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => handleKeyDown(e, toggleOption)}
         />
       )}
-      {dd.open && (
+      {open && (
         <div
-          ref={dd.listRef}
+          ref={listRef}
           style={{
             position: "absolute",
-            ...(dd.dropUp ? { bottom: "100%" } : { top: "100%" }),
+            ...(dropUp ? { bottom: "100%" } : { top: "100%" }),
             right: 0,
             left: 0,
             zIndex: 1050,
@@ -92,10 +105,10 @@ export function MultiSearchableSelect({
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           }}
         >
-          {dd.filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="px-2 py-1 text-secondary small">אין תוצאות</div>
           ) : (
-            dd.filtered.map((o, i) => {
+            filtered.map((o, i) => {
               const isSelected = selected.has(o);
               return (
                 <div
@@ -104,10 +117,10 @@ export function MultiSearchableSelect({
                   style={{
                     cursor: "pointer",
                     backgroundColor:
-                      i === dd.highlightIndex ? "#e9ecef" : undefined,
+                      i === highlightIndex ? "#e9ecef" : undefined,
                   }}
                   onMouseDown={(e) => e.preventDefault()}
-                  onMouseEnter={() => dd.setHighlightIndex(i)}
+                  onMouseEnter={() => setHighlightIndex(i)}
                   onClick={() => toggleOption(o)}
                 >
                   <span

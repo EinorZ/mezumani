@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useId } from "react";
 
 interface Props {
   title: string;
@@ -20,6 +20,7 @@ export function CollapsibleSection({
   children,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);
+  const contentId = useId();
   const contentRef = useRef<HTMLDivElement>(null);
   const [maxHeight, setMaxHeight] = useState<string>(
     defaultOpen ? "none" : "0px",
@@ -51,7 +52,7 @@ export function CollapsibleSection({
 
   return (
     <div
-      className="settings-section"
+      className={`settings-section${maxHeight === "none" ? " open" : ""}`}
       style={
         accentColor
           ? ({ "--section-accent": accentColor } as React.CSSProperties)
@@ -62,9 +63,15 @@ export function CollapsibleSection({
         className="settings-section-header"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        aria-controls={contentId}
+        type="button"
       >
         <div className="settings-section-title-area">
-          {icon && <span className="settings-section-icon">{icon}</span>}
+          {icon && (
+            <span className="settings-section-icon" aria-hidden="true">
+              {icon}
+            </span>
+          )}
           <div>
             <span className="settings-section-title">{title}</span>
             {description && (
@@ -82,9 +89,11 @@ export function CollapsibleSection({
         </span>
       </button>
       <div
+        id={contentId}
         ref={contentRef}
         className={`settings-section-body${maxHeight === "none" ? " open" : ""}`}
         style={{ maxHeight }}
+        aria-hidden={!open}
       >
         <div className="settings-section-content">{children}</div>
       </div>

@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { Rubik } from "next/font/google";
-import {
-  listSheets,
-  ensureSettingsSheet,
-  ensureCurrentSheets,
-} from "@/lib/google-sheets";
-import { buildYearGroups } from "@/lib/utils";
+import { loadNavigation } from "@/server/queries";
 import { Sidebar } from "@/components/sidebar";
 import { NoNumberScroll } from "@/components/no-number-scroll";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -34,18 +29,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Ensure settings sheet exists
-  await ensureSettingsSheet();
-
-  let sheets = await listSheets();
-
-  // Auto-create current month and annual sheets if missing
-  const created = await ensureCurrentSheets(sheets);
-  if (created) {
-    sheets = await listSheets();
-  }
-
-  const yearGroups = buildYearGroups(sheets);
+  const yearGroups = await loadNavigation();
 
   return (
     <html lang="he" dir="rtl" suppressHydrationWarning>

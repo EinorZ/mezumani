@@ -1,33 +1,47 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * Like useState but reads/writes the value to localStorage.
- * The initial value is used on the server and on first render to
- * avoid hydration mismatches; the stored value is applied after mount.
+ * The server snapshot always uses the initial value, while the browser
+ * snapshot stays synchronized across this tab and other tabs.
  */
 export function useLocalStorage<T>(
   key: string,
   initial: T,
 ): [T, (v: T) => void] {
-  const [value, setValue] = useState<T>(initial);
-
-  useEffect(() => {
+  const eventName = `mezumani:storage:${key}`;
+  const getSnapshot = useCallback(() => {
     try {
       const stored = localStorage.getItem(key);
-      if (stored !== null) {
-        setValue(JSON.parse(stored) as T);
-      }
+      return stored === null ? initial : (JSON.parse(stored) as T);
     } catch {
-      // ignore parse errors
+      return initial;
     }
-  }, [key]);
+  }, [initial, key]);
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      function onStorage(event: StorageEvent) {
+        if (event.key === key) onStoreChange();
+      }
+      window.addEventListener("storage", onStorage);
+      window.addEventListener(eventName, onStoreChange);
+      return () => {
+        window.removeEventListener("storage", onStorage);
+        window.removeEventListener(eventName, onStoreChange);
+      };
+    },
+    [eventName, key],
+  );
+
+  const value = useSyncExternalStore(subscribe, getSnapshot, () => initial);
 
   function set(v: T) {
-    setValue(v);
     try {
       localStorage.setItem(key, JSON.stringify(v));
+      window.dispatchEvent(new Event(eventName));
     } catch {
       // ignore quota errors
     }

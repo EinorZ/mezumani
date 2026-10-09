@@ -24,9 +24,6 @@ export function useSearchableDropdown(options: string[]) {
     if (open && inputRef.current) {
       inputRef.current.focus();
     }
-    if (!open) {
-      setHighlightIndex(-1);
-    }
   }, [open]);
 
   const filtered = options.filter((o) =>

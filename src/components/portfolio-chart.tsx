@@ -10,7 +10,11 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/utils";
-import type { ChartRange, InvestmentTerm, PortfolioHistoryPoint } from "@/lib/types";
+import type {
+  ChartRange,
+  InvestmentTerm,
+  PortfolioHistoryPoint,
+} from "@/lib/types";
 import { getPortfolioHistoryAction } from "@/lib/actions";
 
 const RANGES: { key: ChartRange; label: string }[] = [
@@ -41,13 +45,11 @@ interface TooltipProps {
 function ChartTooltip({ active, payload, firstValue }: TooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const point = payload[0].payload;
-  const changeFromStart = firstValue > 0
-    ? ((point.value - firstValue) / firstValue) * 100
-    : 0;
+  const changeFromStart =
+    firstValue > 0 ? ((point.value - firstValue) / firstValue) * 100 : 0;
   const investedDiff = point.value - point.invested;
-  const investedPct = point.invested > 0
-    ? ((investedDiff) / point.invested) * 100
-    : 0;
+  const investedPct =
+    point.invested > 0 ? (investedDiff / point.invested) * 100 : 0;
 
   return (
     <div
@@ -69,11 +71,13 @@ function ChartTooltip({ active, payload, firstValue }: TooltipProps) {
           style={{ color: investedDiff >= 0 ? "#198754" : "#dc3545" }}
           dir="ltr"
         >
-          ({investedDiff >= 0 ? "+" : ""}{investedPct.toFixed(2)}%)
+          ({investedDiff >= 0 ? "+" : ""}
+          {investedPct.toFixed(2)}%)
         </span>
       </div>
       <div className="text-muted" dir="ltr">
-        שינוי בתקופה: {changeFromStart >= 0 ? "+" : ""}{changeFromStart.toFixed(2)}%
+        שינוי בתקופה: {changeFromStart >= 0 ? "+" : ""}
+        {changeFromStart.toFixed(2)}%
       </div>
     </div>
   );
@@ -97,7 +101,7 @@ export function PortfolioChart({ initialData, initialRange, term }: Props) {
         }
       });
     },
-    [activeRange],
+    [activeRange, term],
   );
 
   if (data.length === 0 && !isPending) return null;
@@ -121,7 +125,8 @@ export function PortfolioChart({ initialData, initialRange, term }: Props) {
               dir="ltr"
             >
               {changeAmount >= 0 ? "+" : ""}
-              {formatCurrency(Math.abs(changeAmount))} ({changePct >= 0 ? "+" : ""}
+              {formatCurrency(Math.abs(changeAmount))} (
+              {changePct >= 0 ? "+" : ""}
               {changePct.toFixed(2)}%)
             </span>
           )}
@@ -154,15 +159,31 @@ export function PortfolioChart({ initialData, initialRange, term }: Props) {
               zIndex: 10,
             }}
           >
-            <div className="spinner-border spinner-border-sm text-muted" role="status" />
+            <div
+              className="spinner-border spinner-border-sm text-muted"
+              role="status"
+            />
           </div>
         )}
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+          <AreaChart
+            data={data}
+            margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
+          >
             <defs>
-              <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient
+                id="portfolioGradient"
+                x1="0"
+                y1="0"
+                x2="0"
+                y2="1"
+              >
                 <stop offset="5%" stopColor={gradientColor} stopOpacity={0.3} />
-                <stop offset="95%" stopColor={gradientColor} stopOpacity={0.05} />
+                <stop
+                  offset="95%"
+                  stopColor={gradientColor}
+                  stopOpacity={0.05}
+                />
               </linearGradient>
             </defs>
             <XAxis

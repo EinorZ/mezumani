@@ -1,4 +1,8 @@
-import { google } from "googleapis";
+import {
+  getGoogleSheetsClient,
+  householdSpreadsheetId,
+  investmentsSpreadsheetId,
+} from "@/server/persistence/google-sheets-client";
 import type {
   MonthlyData,
   Transaction,
@@ -17,6 +21,7 @@ import type {
   RecurringExpense,
   CategoryMapping,
   ExpenseRenameRule,
+  CardLastFourMapping,
   IncomeSource,
   StockConfig,
   StockDefinition,
@@ -49,6 +54,8 @@ import {
   SETTINGS_RANGE_ANNUAL_GOAL,
   SETTINGS_RANGE_IRREGULAR_EXPENSE_YEARS,
   SETTINGS_RANGE_IRREGULAR_EXPENSE_CATEGORIES,
+  SETTINGS_RANGE_CARD_MAPPING_NAMES,
+  SETTINGS_RANGE_CARD_MAPPING_LAST_FOUR,
   SETTINGS_RANGE_STOCK_SYMBOLS,
   SETTINGS_RANGE_STOCK_NAMES,
   SETTINGS_RANGE_STOCK_SOURCES,
@@ -73,21 +80,12 @@ import {
 } from "./constants";
 import { classifySheet, parseNumber } from "./utils";
 
-function getAuth() {
-  return new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-}
-
 function getSheets() {
-  return google.sheets({ version: "v4", auth: getAuth() });
+  return getGoogleSheetsClient();
 }
 
-const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID!;
-const STOCKS_SPREADSHEET_ID =
-  process.env.GOOGLE_STOCKS_SPREADSHEET_ID ?? SPREADSHEET_ID;
+const SPREADSHEET_ID = householdSpreadsheetId;
+const STOCKS_SPREADSHEET_ID = investmentsSpreadsheetId;
 
 /**
  * List all sheet names and classify them.
@@ -409,7 +407,10 @@ export async function getAnnualData(yearSuffix: number): Promise<AnnualData> {
     // Parse allocations K1:L10
     const rawAllocations = valueRanges[i * 4 + 3]?.values ?? [];
     const allocations: MonthAllocation[] = rawAllocations
-      .map((row) => ({ label: row[0]?.trim() ?? "", amount: parseNumber(row[1]) ?? 0 }))
+      .map((row) => ({
+        label: row[0]?.trim() ?? "",
+        amount: parseNumber(row[1]) ?? 0,
+      }))
       .filter((a) => a.label && a.amount > 0);
     monthAllocationsMap.set(monthIndex, allocations);
   }
@@ -624,8 +625,22 @@ export async function batchImportTransactions(
 
   for (const data of transactions) {
     const values = isVacation
-      ? [data.date, data.expense, String(data.amount), data.card, data.category, data.notes]
-      : [data.date, data.expense, String(data.amount), data.category, data.card, data.notes];
+      ? [
+          data.date,
+          data.expense,
+          String(data.amount),
+          data.card,
+          data.category,
+          data.notes,
+        ]
+      : [
+          data.date,
+          data.expense,
+          String(data.amount),
+          data.category,
+          data.card,
+          data.notes,
+        ];
     const existingRow = data.updateExisting
       ? findExistingRow(data.expense, data.card)
       : undefined;
@@ -830,6 +845,7 @@ export async function createMonthSheet(
       recurringExpenses: [],
       categoryMappings: [],
       expenseRenameRules: [],
+      cardLastFourMappings: [],
       incomeSources: [],
       annualGoals: {},
       irregularExpenseCategoriesByYear: {},
@@ -1079,7 +1095,9 @@ async function migrateCategoryColors(): Promise<void> {
 /**
  * Ensure the settings sheet exists. Creates it with default values if missing.
  */
-export async function ensureSettingsSheet(): Promise<void> {
+let settingsSheetReady: Promise<void> | null = null;
+
+async function ensureSettingsSheetOnce(): Promise<void> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -1113,7 +1131,7 @@ export async function ensureSettingsSheet(): Promise<void> {
   // Seed with headers only — categories will be synced from existing sheets
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SETTINGS_SHEET_NAME}'!A1:O1`,
+    range: `'${SETTINGS_SHEET_NAME}'!A1:T1`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [
@@ -1133,6 +1151,11 @@ export async function ensureSettingsSheet(): Promise<void> {
           "מילות מפתח",
           "מקור הכנסה",
           "פרטי הכנסה",
+          "יעד חיסכון שנתי",
+          "שנת קטגוריות לנרמול",
+          "קטגוריות לנרמול",
+          "כרטיס (זיהוי קובץ)",
+          "4 ספרות אחרונות",
         ],
       ],
     },
@@ -1140,6 +1163,16 @@ export async function ensureSettingsSheet(): Promise<void> {
 
   // Migrate categories from existing monthly/vacation sheets
   await migrateCategoryColors();
+}
+
+export async function ensureSettingsSheet(): Promise<void> {
+  settingsSheetReady ??= ensureSettingsSheetOnce();
+  try {
+    await settingsSheetReady;
+  } catch (error) {
+    settingsSheetReady = null;
+    throw error;
+  }
 }
 
 /**
@@ -1169,6 +1202,8 @@ export async function getAppConfig(): Promise<AppConfig> {
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_ANNUAL_GOAL}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_IRREGULAR_EXPENSE_YEARS}`,
       `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_IRREGULAR_EXPENSE_CATEGORIES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CARD_MAPPING_NAMES}`,
+      `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_CARD_MAPPING_LAST_FOUR}`,
     ],
   });
 
@@ -1305,6 +1340,21 @@ export async function getAppConfig(): Promise<AppConfig> {
       .filter(Boolean);
   }
 
+  const cardMappingNameRows = (valueRanges[18]?.values ?? []).map(
+    (row) => String(row[0] ?? "").trim(),
+  );
+  const cardMappingLastFourRows = (valueRanges[19]?.values ?? []).map(
+    (row) => String(row[0] ?? "").trim().padStart(4, "0"),
+  );
+  const cardLastFourMappings: CardLastFourMapping[] = [];
+  for (let i = 0; i < cardMappingNameRows.length; i++) {
+    const card = cardMappingNameRows[i];
+    const lastFour = cardMappingLastFourRows[i] ?? "";
+    if (card && /^\d{4}$/.test(lastFour)) {
+      cardLastFourMappings.push({ card, lastFour });
+    }
+  }
+
   return {
     monthlyCategories: extractCategories(0),
     vacationCategories: extractCategories(1),
@@ -1315,6 +1365,7 @@ export async function getAppConfig(): Promise<AppConfig> {
     recurringExpenses,
     categoryMappings,
     expenseRenameRules,
+    cardLastFourMappings,
     incomeSources,
     annualGoals,
     irregularExpenseCategoriesByYear,
@@ -1542,15 +1593,16 @@ export async function updateSummaryCardItem(
   newLabel: string,
   categories: string,
 ): Promise<void> {
-  await updateSettingsRow(SUMMARY_CARD_CONFIG, oldLabel, [newLabel, categories]);
+  await updateSettingsRow(SUMMARY_CARD_CONFIG, oldLabel, [
+    newLabel,
+    categories,
+  ]);
 }
 
 /**
  * Reorder summary cards by rewriting all F+G rows.
  */
-export async function reorderSummaryCards(
-  items: SummaryCard[],
-): Promise<void> {
+export async function reorderSummaryCards(items: SummaryCard[]): Promise<void> {
   const sheets = getSheets();
 
   // Clear existing data
@@ -1562,10 +1614,7 @@ export async function reorderSummaryCards(
   if (items.length === 0) return;
 
   // Write in new order
-  const rows = items.map((item) => [
-    item.label,
-    item.categories.join(","),
-  ]);
+  const rows = items.map((item) => [item.label, item.categories.join(",")]);
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `'${SETTINGS_SHEET_NAME}'!F2:G${rows.length + 1}`,
@@ -1661,7 +1710,10 @@ export async function updateCategoryMapping(
   expenseName: string,
   category: string,
 ): Promise<void> {
-  await updateSettingsRow(MAPPING_CONFIG, oldExpenseName, [expenseName, category]);
+  await updateSettingsRow(MAPPING_CONFIG, oldExpenseName, [
+    expenseName,
+    category,
+  ]);
 }
 
 export async function removeCategoryMapping(
@@ -1689,6 +1741,36 @@ export async function removeExpenseRenameRule(
   targetName: string,
 ): Promise<void> {
   await removeSettingsRow(RENAME_CONFIG, targetName);
+}
+
+export async function setCardLastFourMapping(
+  card: string,
+  lastFour: string,
+): Promise<void> {
+  const row =
+    (await findSettingsRow(CARD_LAST_FOUR_CONFIG, card)) ??
+    (await findFirstEmptySettingsRow(CARD_LAST_FOUR_CONFIG));
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!S1:T1`,
+          values: [["כרטיס (זיהוי קובץ)", "4 ספרות אחרונות"]],
+        },
+        {
+          range: `'${SETTINGS_SHEET_NAME}'!S${row}:T${row}`,
+          values: [[card, lastFour]],
+        },
+      ],
+    },
+  });
+}
+
+export async function removeCardLastFourMapping(card: string): Promise<void> {
+  await removeSettingsRow(CARD_LAST_FOUR_CONFIG, card);
 }
 
 // ---- Income source functions ----
@@ -1997,6 +2079,7 @@ export async function createVacationSheet(
       recurringExpenses: [],
       categoryMappings: [],
       expenseRenameRules: [],
+      cardLastFourMappings: [],
       incomeSources: [],
       annualGoals: {},
       irregularExpenseCategoriesByYear: {},
@@ -2253,7 +2336,10 @@ async function ensureStockSettingsSheet(): Promise<void> {
     fields: "sheets.properties.title",
   });
   const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
-  if (titles.includes(SETTINGS_SHEET_NAME)) { _stockSettingsSheetConfirmed = true; return; }
+  if (titles.includes(SETTINGS_SHEET_NAME)) {
+    _stockSettingsSheetConfirmed = true;
+    return;
+  }
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
@@ -2376,7 +2462,10 @@ export async function getStockConfig(): Promise<StockConfig> {
     label,
     targetPercent: parseFloat(allocPercents[i]) || 0,
     selectedStock: allocStocks[i] || undefined,
-    color: (allocColors[i] && allocColors[i] !== "#000000") ? allocColors[i] : undefined,
+    color:
+      allocColors[i] && allocColors[i] !== "#000000"
+        ? allocColors[i]
+        : undefined,
   }));
 
   // Parse cached annual returns (P-Q columns)
@@ -2399,7 +2488,9 @@ export async function getStockConfig(): Promise<StockConfig> {
  * Writes ALL saved years at once (replaces the entire P-Q range).
  * Called only after verifying that the computed returns are reliable.
  */
-export async function saveYearReturns(yearReturns: Record<number, number>): Promise<void> {
+export async function saveYearReturns(
+  yearReturns: Record<number, number>,
+): Promise<void> {
   const sheets = getSheets();
   const sorted = Object.entries(yearReturns)
     .map(([yr, pct]) => [parseInt(yr, 10), pct] as [number, number])
@@ -2410,7 +2501,10 @@ export async function saveYearReturns(yearReturns: Record<number, number>): Prom
   const pctValues = sorted.map(([, pct]) => [String(pct)]);
 
   // Pad to 99 rows (P2:P100 / Q2:Q100) to clear any old data beyond the current count
-  while (yearValues.length < 99) { yearValues.push([""]); pctValues.push([""]); }
+  while (yearValues.length < 99) {
+    yearValues.push([""]);
+    pctValues.push([""]);
+  }
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
@@ -2474,6 +2568,13 @@ const INCOME_CONFIG: SettingsCrudConfig = {
   endCol: "O",
 };
 
+const CARD_LAST_FOUR_CONFIG: SettingsCrudConfig = {
+  spreadsheetId: SPREADSHEET_ID,
+  keyColumn: "S",
+  startCol: "S",
+  endCol: "T",
+};
+
 const STOCK_DEF_CONFIG: SettingsCrudConfig = {
   spreadsheetId: STOCKS_SPREADSHEET_ID,
   keyColumn: "A",
@@ -2495,7 +2596,9 @@ const GOAL_CONFIG: SettingsCrudConfig = {
   endCol: "H",
 };
 
-async function findFirstEmptySettingsRow(cfg: SettingsCrudConfig): Promise<number> {
+async function findFirstEmptySettingsRow(
+  cfg: SettingsCrudConfig,
+): Promise<number> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: cfg.spreadsheetId,
@@ -2574,7 +2677,13 @@ export async function addStockDefinition(
   currency: StockCurrency,
   label: string = "",
 ): Promise<void> {
-  await addSettingsRow(STOCK_DEF_CONFIG, [symbol, displayName, source, currency, label]);
+  await addSettingsRow(STOCK_DEF_CONFIG, [
+    symbol,
+    displayName,
+    source,
+    currency,
+    label,
+  ]);
 }
 
 export async function updateStockDefinition(
@@ -2585,7 +2694,13 @@ export async function updateStockDefinition(
   currency: StockCurrency,
   label: string = "",
 ): Promise<void> {
-  await updateSettingsRow(STOCK_DEF_CONFIG, oldSymbol, [symbol, displayName, source, currency, label]);
+  await updateSettingsRow(STOCK_DEF_CONFIG, oldSymbol, [
+    symbol,
+    displayName,
+    source,
+    currency,
+    label,
+  ]);
 }
 
 export async function removeStockDefinition(symbol: string): Promise<void> {
@@ -2676,7 +2791,10 @@ export async function ensureStockSheet(): Promise<void> {
     fields: "sheets.properties.title",
   });
   const titles = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
-  if (titles.includes(STOCKS_SHEET_NAME)) { _stockSheetConfirmed = true; return; }
+  if (titles.includes(STOCKS_SHEET_NAME)) {
+    _stockSheetConfirmed = true;
+    return;
+  }
 
   const addRes = await sheets.spreadsheets.batchUpdate({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
@@ -2867,7 +2985,7 @@ const RSU_SHEET_NAME = "nvidia";
 
 const RSU_HEADERS = [
   "תאריך מענק",
-  "סה\"כ מניות במענק",
+  'סה"כ מניות במענק',
   "תאריך הבשלה",
   "כמות",
   "מחיר הענקה $",
@@ -2949,7 +3067,12 @@ export async function ensureRsuSheet(): Promise<void> {
   await ensureSheetInStocksSpreadsheet(RSU_SHEET_NAME, RSU_HEADERS, "L");
 }
 
-export async function getRsuGrossData(): Promise<{ grossSoFar: number; monthlySalary: number; esppMonthlyContribution: number; esppPurchasePrice: number }> {
+export async function getRsuGrossData(): Promise<{
+  grossSoFar: number;
+  monthlySalary: number;
+  esppMonthlyContribution: number;
+  esppPurchasePrice: number;
+}> {
   const sheets = getSheets();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
@@ -2959,18 +3082,33 @@ export async function getRsuGrossData(): Promise<{ grossSoFar: number; monthlySa
   return {
     grossSoFar: parseFloat(String(row[0] ?? "").replace(/,/g, "")) || 0,
     monthlySalary: parseFloat(String(row[1] ?? "").replace(/,/g, "")) || 0,
-    esppMonthlyContribution: parseFloat(String(row[2] ?? "").replace(/,/g, "")) || 0,
+    esppMonthlyContribution:
+      parseFloat(String(row[2] ?? "").replace(/,/g, "")) || 0,
     esppPurchasePrice: parseFloat(String(row[3] ?? "").replace(/,/g, "")) || 0,
   };
 }
 
-export async function setRsuGrossData(grossSoFar: number, monthlySalary: number, esppMonthlyContribution: number, esppPurchasePrice: number): Promise<void> {
+export async function setRsuGrossData(
+  grossSoFar: number,
+  monthlySalary: number,
+  esppMonthlyContribution: number,
+  esppPurchasePrice: number,
+): Promise<void> {
   const sheets = getSheets();
   await sheets.spreadsheets.values.update({
     spreadsheetId: STOCKS_SPREADSHEET_ID,
     range: `'${RSU_SHEET_NAME}'!J2:M2`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [[grossSoFar || "", monthlySalary || "", esppMonthlyContribution || "", esppPurchasePrice || ""]] },
+    requestBody: {
+      values: [
+        [
+          grossSoFar || "",
+          monthlySalary || "",
+          esppMonthlyContribution || "",
+          esppPurchasePrice || "",
+        ],
+      ],
+    },
   });
 }
 
@@ -3021,12 +3159,13 @@ async function findFirstEmptyRowInSheet(
   return lastNonEmpty + 3;
 }
 
-export async function addRsuVestRows(
-  rows: string[][],
-): Promise<void> {
+export async function addRsuVestRows(rows: string[][]): Promise<void> {
   await ensureRsuSheet();
   const sheets = getSheets();
-  const startRow = await findFirstEmptyRowInSheet(RSU_SHEET_NAME, STOCKS_SPREADSHEET_ID);
+  const startRow = await findFirstEmptyRowInSheet(
+    RSU_SHEET_NAME,
+    STOCKS_SPREADSHEET_ID,
+  );
   const data = rows.map((row, i) => ({
     range: `'${RSU_SHEET_NAME}'!A${startRow + i}:H${startRow + i}`,
     values: [row],

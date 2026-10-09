@@ -40,14 +40,24 @@ interface Props {
   initialChartData?: PortfolioHistoryPoint[];
   initialChartRange?: ChartRange;
   portfolioReturns?: PortfolioReturns;
+  renderedAt: string;
 }
 
-export function StockDashboard({ data, config, initialChartData, initialChartRange = "YTD", portfolioReturns }: Props) {
+export function StockDashboard({
+  data,
+  config,
+  initialChartData,
+  initialChartRange = "YTD",
+  portfolioReturns,
+  renderedAt,
+}: Props) {
   const labelMap = Object.fromEntries(
     config.stocks.filter((s) => s.label).map((s) => [s.symbol, s.label]),
   );
   const labelColorMap = Object.fromEntries(
-    config.labelAllocations.filter((a) => a.color).map((a) => [a.label, a.color!]),
+    config.labelAllocations
+      .filter((a) => a.color)
+      .map((a) => [a.label, a.color!]),
   );
   // Only show tabs for terms that have goals defined in settings
   const goalTerms = [...new Set(config.goals.map((g) => g.term))];
@@ -62,18 +72,14 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
   // Collapsible performance section
   const [perfOpen, setPerfOpen] = useState(false);
   const { refreshing, handleRefresh } = usePageRefresh("/stocks");
-  const {
-    chartData: perfChartData,
-    returns: perfReturns,
-    loading: perfLoading,
-    rangeRef: perfChartRange,
-  } = usePortfolioPerformance({
-    initialChartData: initialChartData ?? null,
-    initialRange: initialChartRange,
-    initialReturns: portfolioReturns ?? null,
-    term: viewTerm,
-    enabled: perfOpen,
-  });
+  const { returns: perfReturns, loading: perfLoading } =
+    usePortfolioPerformance({
+      initialChartData: initialChartData ?? null,
+      initialRange: initialChartRange,
+      initialReturns: portfolioReturns ?? null,
+      term: viewTerm,
+      enabled: perfOpen,
+    });
 
   const { totals, usdToIls, usdToIlsError, lastUpdated } = data;
   const isPositive = totals.totalProfitLoss >= 0;
@@ -85,7 +91,7 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
 
   const lastUpdatedDate = new Date(lastUpdated);
   const minutesAgo = Math.floor(
-    (Date.now() - lastUpdatedDate.getTime()) / 60000,
+    (new Date(renderedAt).getTime() - lastUpdatedDate.getTime()) / 60000,
   );
 
   // Empty state
@@ -178,7 +184,9 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
         </div>
         <div className="small text-muted mt-2">
           {usdToIlsError ? (
-            <span className="text-danger fw-semibold">⚠ שגיאה בטעינת שער USD/ILS</span>
+            <span className="text-danger fw-semibold">
+              ⚠ שגיאה בטעינת שער USD/ILS
+            </span>
           ) : (
             <span dir="ltr">USD/ILS: {usdToIls.toFixed(2)}</span>
           )}
@@ -291,11 +299,6 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
           const viewGoals = config.goals.filter((g) => g.term === viewTerm);
           const goalTarget = viewGoals.reduce((s, g) => s + g.targetAmount, 0);
           if (goalTarget <= 0) return null;
-          const goalProgress = Math.min(
-            100,
-            (viewTotals.totalValueILS / goalTarget) * 100,
-          );
-
           return (
             <div className="col">
               <div className="card card-blue-gradient rounded-3 p-3 h-100">
@@ -320,16 +323,20 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
 
       {/* Rebalance calculator (ארוך view only) */}
       {viewTerm === "ארוך" && (
-        <RebalanceCalculator holdings={data.holdings} config={config} priceBySymbolILS={data.priceBySymbolILS} />
+        <RebalanceCalculator
+          holdings={data.holdings}
+          config={config}
+          priceBySymbolILS={data.priceBySymbolILS}
+        />
       )}
 
       {/* Chart mode toggle + Charts */}
       <div className="d-flex justify-content-end mb-2">
         <div className="btn-group btn-group-sm" role="group">
-          {([
+          {[
             { mode: "donut" as ChartMode, icon: PieChartIcon, label: "דונאט" },
             { mode: "treemap" as ChartMode, icon: LayoutGrid, label: "מפה" },
-          ]).map(({ mode, icon: Icon, label }) => (
+          ].map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
               className={`btn ${chartMode === mode ? "btn-dark" : "btn-outline-secondary"}`}
@@ -343,10 +350,19 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       </div>
       <div className="row g-3 mb-4">
         <div className="col-12 col-lg-6">
-          <StockPieChart holdings={viewHoldings} labelColorMap={labelColorMap} chartMode={chartMode} />
+          <StockPieChart
+            holdings={viewHoldings}
+            labelColorMap={labelColorMap}
+            chartMode={chartMode}
+          />
         </div>
         <div className="col-12 col-lg-6">
-          <LabelAllocationChart holdings={viewHoldings} labelMap={labelMap} labelColorMap={labelColorMap} chartMode={chartMode} />
+          <LabelAllocationChart
+            holdings={viewHoldings}
+            labelMap={labelMap}
+            labelColorMap={labelColorMap}
+            chartMode={chartMode}
+          />
         </div>
       </div>
 
@@ -359,26 +375,33 @@ export function StockDashboard({ data, config, initialChartData, initialChartRan
       {/* Collapsible performance section */}
       <div className="card rounded-3 border mt-4 overflow-hidden">
         <div
-            className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
-            style={{ cursor: "pointer" }}
-            onClick={() => setPerfOpen((v) => !v)}
-          >
-            <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
-              ביצועי תיק
-            </span>
-            <div className="d-flex align-items-center gap-2">
-              {perfLoading && <span className="spinner-border spinner-border-sm text-muted" style={{ width: 14, height: 14, borderWidth: 2 }} />}
-              {perfOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </div>
+          className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
+          style={{ cursor: "pointer" }}
+          onClick={() => setPerfOpen((v) => !v)}
+        >
+          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+            ביצועי תיק
+          </span>
+          <div className="d-flex align-items-center gap-2">
+            {perfLoading && (
+              <span
+                className="spinner-border spinner-border-sm text-muted"
+                style={{ width: 14, height: 14, borderWidth: 2 }}
+              />
+            )}
+            {perfOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </div>
-          {perfOpen && (
-            <div className="p-3">
-              {perfReturns && <StockAnnualStats returns={perfReturns} />}
-              {!perfLoading && !perfReturns && (
-                <div className="text-center text-muted small py-3">אין נתונים להצגה</div>
-              )}
-            </div>
-          )}
+        </div>
+        {perfOpen && (
+          <div className="p-3">
+            {perfReturns && <StockAnnualStats returns={perfReturns} />}
+            {!perfLoading && !perfReturns && (
+              <div className="text-center text-muted small py-3">
+                אין נתונים להצגה
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Slide-out panel */}

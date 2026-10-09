@@ -1,9 +1,12 @@
 import { cache } from "react";
-import { getStockConfig as _getStockConfig, getStockTransactions as _getStockTransactions } from "./google-sheets";
+import {
+  getStockConfig as _getStockConfig,
+  getStockTransactions as _getStockTransactions,
+} from "./google-sheets";
 
 // Deduplicate per-request: called from both getStockDashboardData and getPortfolioHistory
-const getStockConfig = cache(_getStockConfig);
-const getStockTransactions = cache(_getStockTransactions);
+export const getCachedStockConfig = cache(_getStockConfig);
+const getCachedStockTransactions = cache(_getStockTransactions);
 import {
   fetchAllPrices,
   fetchYTDStartPrices,
@@ -20,17 +23,15 @@ import type {
   ChartRange,
   PortfolioHistoryPoint,
   PortfolioReturns,
-  StockPortfolioTotals,
 } from "./types";
-
 
 /**
  * Compute the full stock dashboard data.
  */
 export async function getStockDashboardData(): Promise<StockDashboardData> {
   const [config, transactions, usdToIlsResult] = await Promise.all([
-    getStockConfig(),
-    getStockTransactions(),
+    getCachedStockConfig(),
+    getCachedStockTransactions(),
     fetchUsdToIls(),
   ]);
   const usdToIlsError = usdToIlsResult === null;
@@ -60,7 +61,13 @@ export async function getStockDashboardData(): Promise<StockDashboardData> {
     const stockDef = stockMap.get(first.symbol);
     if (!stockDef) continue;
 
-    const holding = computeHolding(txs, stockDef, prices, ytdStartPrices, usdToIls);
+    const holding = computeHolding(
+      txs,
+      stockDef,
+      prices,
+      ytdStartPrices,
+      usdToIls,
+    );
     if (holding.totalShares > 0) {
       holdings.push(holding);
     }
@@ -225,7 +232,9 @@ function computeHolding(
   } else {
     currentPriceRaw = prices.get(stockDef.symbol) ?? 0;
     currentPriceILS =
-      stockDef.currency === "USD" ? currentPriceRaw * usdToIls : currentPriceRaw;
+      stockDef.currency === "USD"
+        ? currentPriceRaw * usdToIls
+        : currentPriceRaw;
   }
   const currentValueILS = totalShares * currentPriceILS;
 
@@ -235,8 +244,12 @@ function computeHolding(
 
   // YTD: compare current price vs start-of-year price (in original currency)
   // Manual source has no YTD data
-  const ytdStartPrice = stockDef.source === "manual" ? undefined : ytdStartPrices.get(stockDef.symbol);
-  const currentPriceRawForYtd = stockDef.source === "manual" ? 0 : (prices.get(stockDef.symbol) ?? 0);
+  const ytdStartPrice =
+    stockDef.source === "manual"
+      ? undefined
+      : ytdStartPrices.get(stockDef.symbol);
+  const currentPriceRawForYtd =
+    stockDef.source === "manual" ? 0 : (prices.get(stockDef.symbol) ?? 0);
   const ytdChangePercent =
     ytdStartPrice && ytdStartPrice > 0 && currentPriceRawForYtd > 0
       ? ((currentPriceRawForYtd - ytdStartPrice) / ytdStartPrice) * 100
@@ -264,7 +277,6 @@ function computeHolding(
   };
 }
 
-
 // ── Portfolio History ──
 
 /** Parse DD/MM/YY transaction date to YYYY-MM-DD */
@@ -273,12 +285,17 @@ function txDateToISO(dateStr: string): string {
   if (parts.length < 2) return "";
   const day = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10);
-  const yearPart = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear() % 100;
+  const yearPart = parts[2]
+    ? parseInt(parts[2], 10)
+    : new Date().getFullYear() % 100;
   const year = yearPart < 100 ? 2000 + yearPart : yearPart;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-function computePeriod1(range: ChartRange, transactions: StockTransaction[]): string {
+function computePeriod1(
+  range: ChartRange,
+  transactions: StockTransaction[],
+): string {
   const now = new Date();
   let d: Date;
   switch (range) {
@@ -316,17 +333,28 @@ function computePeriod1(range: ChartRange, transactions: StockTransaction[]): st
 
 export async function getPortfolioHistory(
   range: ChartRange,
-  { downsample = true, term, startDateOverride }: { downsample?: boolean; term?: InvestmentTerm; startDateOverride?: string } = {},
+  {
+    downsample = true,
+    term,
+    startDateOverride,
+  }: {
+    downsample?: boolean;
+    term?: InvestmentTerm;
+    startDateOverride?: string;
+  } = {},
 ): Promise<PortfolioHistoryPoint[]> {
   const [config, transactions] = await Promise.all([
-    getStockConfig(),
-    getStockTransactions(),
+    getCachedStockConfig(),
+    getCachedStockTransactions(),
   ]);
 
-  const filteredTransactions = term ? transactions.filter((t) => t.term === term) : transactions;
+  const filteredTransactions = term
+    ? transactions.filter((t) => t.term === term)
+    : transactions;
   if (filteredTransactions.length === 0) return [];
 
-  const rawPeriod1 = startDateOverride ?? computePeriod1(range, filteredTransactions);
+  const rawPeriod1 =
+    startDateOverride ?? computePeriod1(range, filteredTransactions);
   // Never fetch before the first transaction — portfolio has no value before then
   const firstTxIso = computePeriod1("Max", filteredTransactions);
   const period1 = rawPeriod1 < firstTxIso ? firstTxIso : rawPeriod1;
@@ -334,7 +362,9 @@ export async function getPortfolioHistory(
 
   // Only fetch prices for stocks present in the filtered transactions
   const filteredSymbols = new Set(filteredTransactions.map((t) => t.symbol));
-  const filteredStocks = config.stocks.filter((s) => filteredSymbols.has(s.symbol));
+  const filteredStocks = config.stocks.filter((s) =>
+    filteredSymbols.has(s.symbol),
+  );
 
   const { prices, usdIls } = await fetchHistoricalPrices(
     filteredStocks,
@@ -438,7 +468,11 @@ export async function getPortfolioHistory(
 
     // Only add points where we have meaningful data
     if (totalValue > 0) {
-      history.push({ date, value: Math.round(totalValue), invested: Math.round(totalInvested) });
+      history.push({
+        date,
+        value: Math.round(totalValue),
+        invested: Math.round(totalInvested),
+      });
     }
   }
 
@@ -462,7 +496,10 @@ export async function getPortfolioHistory(
  * Find the index of the closest history point on or before a target date.
  * Uses binary search for efficiency.
  */
-function findIndexAt(history: PortfolioHistoryPoint[], targetDate: string): number {
+function findIndexAt(
+  history: PortfolioHistoryPoint[],
+  targetDate: string,
+): number {
   let lo = 0;
   let hi = history.length - 1;
   let best = -1;
@@ -484,7 +521,11 @@ function findIndexAt(history: PortfolioHistoryPoint[], targetDate: string): numb
  * daily_r = (value_today - value_yesterday - flow_today) / value_yesterday
  * TWR = product(1 + daily_r) - 1
  */
-function twrForSlice(history: PortfolioHistoryPoint[], fromIdx: number, toIdx: number): number | null {
+function twrForSlice(
+  history: PortfolioHistoryPoint[],
+  fromIdx: number,
+  toIdx: number,
+): number | null {
   if (fromIdx < 0 || fromIdx >= toIdx) return null;
   let cumulative = 1;
   for (let i = fromIdx + 1; i <= toIdx; i++) {
@@ -515,8 +556,13 @@ export function computePortfolioReturns(
   savedYearReturns: Record<number, number> = {},
 ): PortfolioReturns {
   const empty: PortfolioReturns = {
-    daily: null, mtd: null, ytd: null, periods: [],
-    annual: Object.entries(savedYearReturns).map(([yr, pct]) => ({ year: Number(yr), returnPercent: pct })).sort((a, b) => a.year - b.year),
+    daily: null,
+    mtd: null,
+    ytd: null,
+    periods: [],
+    annual: Object.entries(savedYearReturns)
+      .map(([yr, pct]) => ({ year: Number(yr), returnPercent: pct }))
+      .sort((a, b) => a.year - b.year),
   };
   if (history.length < 2) return empty;
 
@@ -575,9 +621,8 @@ export function computePortfolioReturns(
     const yearStart = `${y}-01-01`;
     const yearEnd = `${y}-12-31`;
     const startIdx = findIndexAt(history, yearStart);
-    const effectiveStart = startIdx >= 0
-      ? startIdx
-      : history.findIndex((p) => p.date >= yearStart);
+    const effectiveStart =
+      startIdx >= 0 ? startIdx : history.findIndex((p) => p.date >= yearStart);
     const endIdx = findIndexAt(history, yearEnd);
     if (effectiveStart >= 0 && endIdx > effectiveStart) {
       annualMap.set(y, twrForSlice(history, effectiveStart, endIdx));

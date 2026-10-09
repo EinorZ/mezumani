@@ -33,7 +33,10 @@ interface Props {
   chartMode?: ChartMode;
 }
 
-function useChartData(holdings: StockHolding[], labelColorMap?: Record<string, string>) {
+function useChartData(
+  holdings: StockHolding[],
+  labelColorMap?: Record<string, string>,
+) {
   return useMemo(() => {
     const total = holdings.reduce((s, h) => s + h.currentValueILS, 0);
     const items: PieDataItem[] = holdings
@@ -44,25 +47,40 @@ function useChartData(holdings: StockHolding[], labelColorMap?: Record<string, s
         symbol: h.symbol,
         value: h.currentValueILS,
         percent: total > 0 ? (h.currentValueILS / total) * 100 : 0,
-        color: (h.label && labelColorMap?.[h.label]) ?? getLabelColor(h.label || h.symbol),
+        color:
+          (h.label && labelColorMap?.[h.label]) ??
+          getLabelColor(h.label || h.symbol),
       }));
     return { data: items, totalValue: total };
   }, [holdings, labelColorMap]);
 }
 
 /* ── Improved Donut ── */
-function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: number }) {
-  const { hidden, hoveredIndex, handleClick, handleDblClick, handleHover, isHidden } =
-    useChartLegend<PieDataItem>(data, (item) => item.symbol);
+function DonutChart({ data }: { data: PieDataItem[] }) {
+  const {
+    hidden,
+    hoveredIndex,
+    handleClick,
+    handleDblClick,
+    handleHover,
+    isHidden,
+  } = useChartLegend<PieDataItem>(data, (item) => item.symbol);
 
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.symbol));
     const total = filtered.reduce((s, d) => s + d.value, 0);
-    return filtered.map((d) => ({ ...d, percent: total > 0 ? (d.value / total) * 100 : 0 }));
+    return filtered.map((d) => ({
+      ...d,
+      percent: total > 0 ? (d.value / total) * 100 : 0,
+    }));
   }, [data, hidden]);
 
-  const visibleTotal = useMemo(() => visibleData.reduce((s, d) => s + d.value, 0), [visibleData]);
-  const hoveredItem = hoveredIndex !== undefined ? visibleData[hoveredIndex] : null;
+  const visibleTotal = useMemo(
+    () => visibleData.reduce((s, d) => s + d.value, 0),
+    [visibleData],
+  );
+  const hoveredItem =
+    hoveredIndex !== undefined ? visibleData[hoveredIndex] : null;
 
   return (
     <>
@@ -80,7 +98,16 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
               nameKey="name"
               stroke="none"
               shape={(props: PieSectorShapeProps) => {
-                const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, index } = props;
+                const {
+                  cx,
+                  cy,
+                  innerRadius,
+                  outerRadius,
+                  startAngle,
+                  endAngle,
+                  fill,
+                  index,
+                } = props;
                 const isHovered = hoveredIndex === index;
                 return (
                   <Sector
@@ -94,7 +121,8 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
                     style={{
                       cursor: "pointer",
                       transition: "all 200ms ease",
-                      opacity: hoveredIndex !== undefined && !isHovered ? 0.4 : 1,
+                      opacity:
+                        hoveredIndex !== undefined && !isHovered ? 0.4 : 1,
                     }}
                   />
                 );
@@ -122,10 +150,16 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
         >
           {hoveredItem ? (
             <>
-              <div className="fw-bold" style={{ fontSize: "0.85rem", lineHeight: 1.2 }}>
+              <div
+                className="fw-bold"
+                style={{ fontSize: "0.85rem", lineHeight: 1.2 }}
+              >
                 {hoveredItem.name}
               </div>
-              <div className="fw-bold" style={{ fontSize: "0.95rem", color: hoveredItem.color }}>
+              <div
+                className="fw-bold"
+                style={{ fontSize: "0.95rem", color: hoveredItem.color }}
+              >
                 {hoveredItem.percent.toFixed(1)}%
               </div>
               <div className="text-muted" style={{ fontSize: "0.7rem" }}>
@@ -134,7 +168,9 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
             </>
           ) : (
             <>
-              <div className="text-muted" style={{ fontSize: "0.7rem" }}>סה&quot;כ</div>
+              <div className="text-muted" style={{ fontSize: "0.7rem" }}>
+                סה&quot;כ
+              </div>
               <div className="fw-bold" style={{ fontSize: "1rem" }}>
                 {formatCurrencyCompact(visibleTotal)}
               </div>
@@ -147,27 +183,39 @@ function DonutChart({ data, totalValue }: { data: PieDataItem[]; totalValue: num
       <div className="d-flex flex-wrap gap-2 mt-2 justify-content-center">
         {data.map((item, idx) => {
           const itemIsHidden = isHidden(item.symbol);
-          const visibleIdx = visibleData.findIndex((d) => d.symbol === item.symbol);
+          const visibleIdx = visibleData.findIndex(
+            (d) => d.symbol === item.symbol,
+          );
           return (
             <div
               key={`${item.symbol}-${idx}`}
               className="d-flex align-items-center gap-1"
               style={{
                 fontSize: "0.72rem",
-                opacity: itemIsHidden ? 0.35 : (hoveredIndex !== undefined && hoveredIndex !== visibleIdx ? 0.5 : 1),
+                opacity: itemIsHidden
+                  ? 0.35
+                  : hoveredIndex !== undefined && hoveredIndex !== visibleIdx
+                    ? 0.5
+                    : 1,
                 transition: "opacity 150ms ease",
                 cursor: "pointer",
                 textDecoration: itemIsHidden ? "line-through" : "none",
                 userSelect: "none",
               }}
-              onMouseEnter={() => { if (!itemIsHidden) handleHover(visibleIdx); }}
+              onMouseEnter={() => {
+                if (!itemIsHidden) handleHover(visibleIdx);
+              }}
               onMouseLeave={() => handleHover(undefined)}
               onClick={() => handleClick(item.symbol)}
               onDoubleClick={() => handleDblClick(item.symbol)}
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
+                style={{
+                  width: 8,
+                  height: 8,
+                  backgroundColor: itemIsHidden ? "#ccc" : item.color,
+                }}
               />
               <span>{item.name}</span>
             </div>
@@ -188,12 +236,15 @@ interface TreemapContentProps {
   percent: number;
   color: string;
   depth: number;
-  onHover: (item: { name: string; percent: number; value: number } | null) => void;
+  onHover: (
+    item: { name: string; percent: number; value: number } | null,
+  ) => void;
   value: number;
 }
 
 function TreemapContent(props: TreemapContentProps) {
-  const { x, y, width, height, name, percent, color, depth, onHover, value } = props;
+  const { x, y, width, height, name, percent, color, depth, onHover, value } =
+    props;
   if (depth !== 1) return null;
   const showLabel = width > 50 && height > 35;
   const showPercent = width > 35 && height > 20;
@@ -204,7 +255,16 @@ function TreemapContent(props: TreemapContentProps) {
       onMouseLeave={() => onHover(null)}
       style={{ cursor: "pointer" }}
     >
-      <rect x={x} y={y} width={width} height={height} rx={4} fill={color} stroke="#fff" strokeWidth={2} />
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={4}
+        fill={color}
+        stroke="#fff"
+        strokeWidth={2}
+      />
       {showLabel && (
         <text
           x={x + width / 2}
@@ -243,17 +303,29 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
   const visibleData = useMemo(() => {
     const filtered = data.filter((d) => !hidden.has(d.symbol));
     const total = filtered.reduce((s, d) => s + d.value, 0);
-    return filtered.map((d) => ({ ...d, percent: total > 0 ? (d.value / total) * 100 : 0 }));
+    return filtered.map((d) => ({
+      ...d,
+      percent: total > 0 ? (d.value / total) * 100 : 0,
+    }));
   }, [data, hidden]);
 
-  const treemapData = visibleData.map((d) => ({ ...d } as Record<string, unknown>));
-  const [tooltip, setTooltip] = useState<{ name: string; percent: number; value: number } | null>(null);
+  const treemapData = visibleData.map(
+    (d) => ({ ...d }) as Record<string, unknown>,
+  );
+  const [tooltip, setTooltip] = useState<{
+    name: string;
+    percent: number;
+    value: number;
+  } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
   return (
     <>
       <div
-        style={{ width: "100%", height: Math.max(180, visibleData.length * 18) }}
+        style={{
+          width: "100%",
+          height: Math.max(180, visibleData.length * 18),
+        }}
         onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -264,8 +336,15 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
             stroke="#fff"
             content={
               <TreemapContent
-                x={0} y={0} width={0} height={0}
-                name="" percent={0} color="" depth={0} value={0}
+                x={0}
+                y={0}
+                width={0}
+                height={0}
+                name=""
+                percent={0}
+                color=""
+                depth={0}
+                value={0}
                 onHover={setTooltip}
               />
             }
@@ -291,7 +370,8 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
           >
             <div className="fw-bold">{tooltip.name}</div>
             <div className="text-muted">
-              {tooltip.percent.toFixed(1)}% · {formatCurrencyCompact(tooltip.value)}
+              {tooltip.percent.toFixed(1)}% ·{" "}
+              {formatCurrencyCompact(tooltip.value)}
             </div>
           </div>
         )}
@@ -318,7 +398,11 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
             >
               <span
                 className="rounded-circle flex-shrink-0"
-                style={{ width: 8, height: 8, backgroundColor: itemIsHidden ? "#ccc" : item.color }}
+                style={{
+                  width: 8,
+                  height: 8,
+                  backgroundColor: itemIsHidden ? "#ccc" : item.color,
+                }}
               />
               <span>{item.name}</span>
             </div>
@@ -330,14 +414,21 @@ function TreemapChart({ data }: { data: PieDataItem[] }) {
 }
 
 /* ── Main Component ── */
-export function StockPieChart({ holdings, labelColorMap, title = "הרכב תיק", chartMode = "donut" }: Props) {
+export function StockPieChart({
+  holdings,
+  labelColorMap,
+  title = "הרכב תיק",
+  chartMode = "donut",
+}: Props) {
   const { data, totalValue } = useChartData(holdings, labelColorMap);
 
   if (data.length === 0) {
     return (
       <div className="card rounded-3 border p-3 h-100">
         <h6 className="fw-bold small mb-2">{title}</h6>
-        <div className="text-muted small text-center py-4">אין אחזקות להצגה</div>
+        <div className="text-muted small text-center py-4">
+          אין אחזקות להצגה
+        </div>
       </div>
     );
   }
@@ -351,7 +442,7 @@ export function StockPieChart({ holdings, labelColorMap, title = "הרכב תי�
         סה&quot;כ שווי: {formatCurrency(totalValue)}
       </div>
 
-      {chartMode === "donut" && <DonutChart data={data} totalValue={totalValue} />}
+      {chartMode === "donut" && <DonutChart data={data} />}
       {chartMode === "treemap" && <TreemapChart data={data} />}
     </div>
   );

@@ -13,6 +13,8 @@ import type {
 import { formatCurrency } from "@/lib/utils";
 import { SearchableSelect } from "@/components/searchable-select";
 import { usePageConfig } from "@/contexts/page-config-context";
+import { detectCardFromFileName } from "@/lib/card-import";
+import { isCalCreditHeader, parseCalCreditRows } from "@/lib/excel-import";
 
 interface Props {
   sheetTitle: string;
@@ -53,6 +55,9 @@ function parseExcel(data: ArrayBuffer): ParsedRow[] {
   // Auto-detect format
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    if (isCalCreditHeader(row)) {
+      return parseCalCreditRows(rows, i);
+    }
     if (row.some((cell) => String(cell).includes(CIBUS_HEADER_MARKER))) {
       return parseCibusRows(rows, i);
     }
@@ -209,11 +214,17 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
   const {
     allCards: cards,
     cardColorMap,
-    config: { categoryMappings, expenseRenameRules, recurringExpenses },
+    config: {
+      categoryMappings,
+      expenseRenameRules,
+      recurringExpenses,
+      cardLastFourMappings,
+    },
   } = usePageConfig();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [renamedRows, setRenamedRows] = useState<ParsedRow[] | null>(null);
   const [selectedCard, setSelectedCard] = useState("");
+  const [detectedCard, setDetectedCard] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
@@ -267,6 +278,13 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
     if (!file) return;
     setError(null);
     setSuccessCount(null);
+    const detected = detectCardFromFileName(
+      file.name,
+      cardLastFourMappings,
+      cards,
+    );
+    setSelectedCard(detected ?? "");
+    setDetectedCard(detected);
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -393,6 +411,7 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
 
   function handleClose() {
     setRenamedRows(null);
+    setDetectedCard(null);
     setError(null);
     setSuccessCount(null);
   }
@@ -465,10 +484,16 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
                   options={cards}
                   colorMap={cardColorMap}
                   value={selectedCard}
-                  onChange={setSelectedCard}
+                  onChange={(value) => {
+                    setSelectedCard(value);
+                    if (value !== detectedCard) setDetectedCard(null);
+                  }}
                   placeholder="בחר כרטיס..."
                 />
               </div>
+              {detectedCard && selectedCard === detectedCard && (
+                <span className="small text-success">זוהה אוטומטית משם הקובץ</span>
+              )}
             </div>
 
             {/* Summary */}
