@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calculateLimitDiscountPercent,
+  calculateLimitPrice,
   calculateRebalance,
   computeRebalanceTableRows,
 } from "./rebalance-calculator";
+
+test("converts between a discount percent and a limit price", () => {
+  assert.equal(calculateLimitPrice(29_750, 2), 29_155);
+  assert.equal(calculateLimitDiscountPercent(29_750, 29_155), 2);
+});
+
+test("returns zero for a missing current market price", () => {
+  assert.equal(calculateLimitPrice(0, 2), 0);
+  assert.equal(calculateLimitDiscountPercent(0, 100), 0);
+});
 
 test("directs new investment to the underweight allocation", () => {
   const result = calculateRebalance({

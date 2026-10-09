@@ -30,6 +30,7 @@ interface ParsedRow {
   originalExpense?: string;
   originalAmount?: number;
   vacationSheet?: string; // title of destination vacation sheet, if any
+  vacationCategory?: string; // category chosen from the vacation category list
   skipRecurring?: boolean; // exclude from recurring matching
 }
 
@@ -216,6 +217,7 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
     cardColorMap,
     config: {
       categoryMappings,
+      vacationCategories,
       expenseRenameRules,
       recurringExpenses,
       cardLastFourMappings,
@@ -228,6 +230,9 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(new Set());
+  const [bulkDestination, setBulkDestination] = useState("");
+  const [bulkVacationCategory, setBulkVacationCategory] = useState("");
 
   // Split rows into recurring matches and regular transactions
   const recurringMatches: RecurringMatch[] = [];
@@ -272,12 +277,26 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
     0,
   );
   const grandTotal = regularTotal + recurringTotal;
+  const regularRowIds = regularRows.flatMap((row) =>
+    row.id === undefined ? [] : [row.id],
+  );
+  const selectedRegularCount = regularRowIds.filter((id) =>
+    selectedRowIds.has(id),
+  ).length;
+  const allRegularRowsSelected =
+    regularRowIds.length > 0 && selectedRegularCount === regularRowIds.length;
+  const uncategorizedVacationCount = regularRows.filter(
+    (row) => row.vacationSheet && !row.vacationCategory,
+  ).length;
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
     setSuccessCount(null);
+    setSelectedRowIds(new Set());
+    setBulkDestination("");
+    setBulkVacationCategory("");
     const detected = detectCardFromFileName(
       file.name,
       cardLastFourMappings,
@@ -339,7 +358,9 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
           date: row.date,
           expense: row.expense,
           amount: row.amount,
-          category: lookupCategory(row.expense, categoryMappings),
+          category: row.vacationSheet
+            ? row.vacationCategory ?? ""
+            : lookupCategory(row.expense, categoryMappings),
           card: selectedCard,
           notes: "",
         };
@@ -376,6 +397,13 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
 
   function handleDeleteRow(id: number | undefined) {
     setRenamedRows((prev) => prev?.filter((r) => r.id !== id) ?? null);
+    if (id !== undefined) {
+      setSelectedRowIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   }
 
   function handleUndoRecurring(id: number | undefined) {
@@ -395,8 +423,70 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
 
   function handleSetVacation(id: number | undefined, vacationTitle: string | undefined) {
     setRenamedRows((prev) =>
-      prev?.map((r) => (r.id !== id ? r : { ...r, vacationSheet: vacationTitle })) ?? null
+      prev?.map((r) =>
+        r.id !== id
+          ? r
+          : {
+              ...r,
+              vacationSheet: vacationTitle,
+              vacationCategory:
+                r.vacationSheet === vacationTitle ? r.vacationCategory : undefined,
+            },
+      ) ?? null
     );
+  }
+
+  function handleSetVacationCategory(id: number | undefined, category: string) {
+    setRenamedRows((prev) =>
+      prev?.map((r) =>
+        r.id !== id ? r : { ...r, vacationCategory: category || undefined },
+      ) ?? null,
+    );
+  }
+
+  function handleToggleRow(id: number | undefined) {
+    if (id === undefined) return;
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleToggleAllRegularRows() {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (allRegularRowsSelected) {
+        regularRowIds.forEach((id) => next.delete(id));
+      } else {
+        regularRowIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
+
+  function handleSetBulkDestination() {
+    if (!bulkDestination || selectedRegularCount === 0) return;
+    const vacationTitle =
+      bulkDestination === "__month__" ? undefined : bulkDestination;
+    setRenamedRows(
+      (prev) =>
+        prev?.map((row) =>
+          row.id !== undefined && selectedRowIds.has(row.id)
+            ? {
+                ...row,
+                vacationSheet: vacationTitle,
+                vacationCategory: vacationTitle
+                  ? bulkVacationCategory || undefined
+                  : undefined,
+              }
+            : row,
+        ) ?? null,
+    );
+    setSelectedRowIds(new Set());
+    setBulkDestination("");
+    setBulkVacationCategory("");
   }
 
   function handleRenameRow(id: number | undefined, newExpense: string) {
@@ -414,6 +504,9 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
     setDetectedCard(null);
     setError(null);
     setSuccessCount(null);
+    setSelectedRowIds(new Set());
+    setBulkDestination("");
+    setBulkVacationCategory("");
   }
 
   return (
@@ -486,6 +579,9 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
                   value={selectedCard}
                   onChange={(value) => {
                     setSelectedCard(value);
+                    setSelectedRowIds(new Set());
+                    setBulkDestination("");
+                    setBulkVacationCategory("");
                     if (value !== detectedCard) setDetectedCard(null);
                   }}
                   placeholder="בחר כרטיס..."
@@ -506,6 +602,11 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
                 </span>
               )}
             </div>
+            {uncategorizedVacationCount > 0 && (
+              <div className="small text-warning-emphasis mb-2" role="status">
+                {uncategorizedVacationCount} הוצאות לטיול ללא קטגוריה. אפשר לבחור קטגוריית טיול כאן או לאחר הייבוא.
+              </div>
+            )}
 
             <div style={{ overflowY: "auto", flex: 1 }}>
               {/* Recurring expenses section */}
@@ -595,9 +696,89 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
               )}
 
               {/* Regular transactions */}
+              {vacationSheets &&
+                vacationSheets.length > 0 &&
+                selectedRegularCount > 0 && (
+                <div
+                  className="d-flex align-items-center flex-wrap gap-2 rounded border px-2 py-2 mb-2"
+                  style={{
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 2,
+                    backgroundColor: "var(--bs-body-bg)",
+                  }}
+                >
+                  <span className="small fw-bold text-nowrap">
+                    {selectedRegularCount} נבחרו
+                  </span>
+                  <select
+                    value={bulkDestination}
+                    onChange={(e) => {
+                      setBulkDestination(e.target.value);
+                      setBulkVacationCategory("");
+                    }}
+                    className="form-select form-select-sm"
+                    style={{ maxWidth: 180 }}
+                    aria-label="יעד ייבוא להוצאות שנבחרו"
+                  >
+                    <option value="">בחר יעד...</option>
+                    <option value="__month__">חודש</option>
+                    {vacationSheets.map((vs) => (
+                      <option key={vs.sheetId} value={vs.title}>
+                        ✈ {vs.title}
+                      </option>
+                    ))}
+                  </select>
+                  {bulkDestination && bulkDestination !== "__month__" && (
+                    <select
+                      value={bulkVacationCategory}
+                      onChange={(e) => setBulkVacationCategory(e.target.value)}
+                      className="form-select form-select-sm"
+                      style={{ maxWidth: 180 }}
+                      aria-label="קטגוריית טיול להוצאות שנבחרו"
+                    >
+                      <option value="">ללא קטגוריית טיול</option>
+                      {vacationCategories.map((category) => (
+                        <option key={category.name} value={category.name}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-primary text-nowrap"
+                    onClick={handleSetBulkDestination}
+                    disabled={!bulkDestination || selectedRegularCount === 0}
+                  >
+                    החל
+                  </button>
+                </div>
+              )}
               <table className="table table-sm table-hover mb-0">
                 <thead>
                   <tr>
+                    {vacationSheets && vacationSheets.length > 0 && (
+                      <th
+                        className="small text-secondary"
+                        style={{ width: 28 }}
+                      >
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={allRegularRowsSelected}
+                          ref={(input) => {
+                            if (input) {
+                              input.indeterminate =
+                                selectedRegularCount > 0 &&
+                                !allRegularRowsSelected;
+                            }
+                          }}
+                          onChange={handleToggleAllRegularRows}
+                          aria-label="בחר את כל ההוצאות"
+                        />
+                      </th>
+                    )}
                     <th className="small text-secondary">תאריך</th>
                     <th className="small text-secondary">הוצאה</th>
                     <th className="small text-secondary">סכום</th>
@@ -607,8 +788,24 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
                 <tbody>
                   {regularRows.map((row, i) => {
                     const renamed = row.originalExpense != null && row.originalExpense !== row.expense;
+                    const isSelected =
+                      row.id !== undefined && selectedRowIds.has(row.id);
                     return (
-                      <tr key={row.id ?? i}>
+                      <tr
+                        key={row.id ?? i}
+                        className={isSelected ? "table-active" : undefined}
+                      >
+                        {vacationSheets && vacationSheets.length > 0 && (
+                          <td className="small align-middle">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleRow(row.id)}
+                              aria-label={`בחר הוצאה ${row.expense}`}
+                            />
+                          </td>
+                        )}
                         <td className="small">{row.date}</td>
                         <td className="small" style={{ minWidth: 120 }}>
                           <input
@@ -644,27 +841,36 @@ export function ExcelImportButton({ sheetTitle, pagePath, vacationSheets }: Prop
                         <td className="small">{formatCurrency(row.amount)}</td>
                         <td className="small" style={{ whiteSpace: "nowrap" }}>
                           {vacationSheets && vacationSheets.length > 0 && (
-                            <select
-                              value={row.vacationSheet ?? ""}
-                              onChange={(e) => handleSetVacation(row.id, e.target.value || undefined)}
-                              className="me-1"
-                              style={{
-                                fontSize: "0.7em",
-                                border: `1px solid ${row.vacationSheet ? "#0dcaf0" : "#dee2e6"}`,
-                                borderRadius: 4,
-                                padding: "1px 2px",
-                                background: "transparent",
-                                color: row.vacationSheet ? "#0dcaf0" : "#6c757d",
-                                maxWidth: 90,
-                                cursor: "pointer",
-                              }}
-                              title="יעד ייבוא"
-                            >
-                              <option value="">✈ חודש</option>
-                              {vacationSheets.map((vs) => (
-                                <option key={vs.sheetId} value={vs.title}>{vs.title}</option>
-                              ))}
-                            </select>
+                            <span className="d-inline-flex flex-column align-middle me-1 gap-1">
+                              <select
+                                value={row.vacationSheet ?? ""}
+                                onChange={(e) => handleSetVacation(row.id, e.target.value || undefined)}
+                                className="form-select form-select-sm py-0"
+                                style={{ fontSize: "0.75em", width: 110 }}
+                                aria-label={`יעד ייבוא עבור ${row.expense}`}
+                              >
+                                <option value="">חודש</option>
+                                {vacationSheets.map((vs) => (
+                                  <option key={vs.sheetId} value={vs.title}>{vs.title}</option>
+                                ))}
+                              </select>
+                              {row.vacationSheet && (
+                                <select
+                                  value={row.vacationCategory ?? ""}
+                                  onChange={(e) => handleSetVacationCategory(row.id, e.target.value)}
+                                  className="form-select form-select-sm py-0"
+                                  style={{ fontSize: "0.75em", width: 110 }}
+                                  aria-label={`קטגוריית טיול עבור ${row.expense}`}
+                                >
+                                  <option value="">ללא קטגוריה</option>
+                                  {vacationCategories.map((category) => (
+                                    <option key={category.name} value={category.name}>
+                                      {category.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </span>
                           )}
                           <button
                             className="btn btn-sm p-0 text-danger opacity-50"

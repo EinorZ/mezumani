@@ -1,15 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { Calculator, Save, Plus, ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import {
+  Calculator,
+  Save,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  ShoppingCart,
+  X,
+} from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import type { StockHolding, StockConfig } from "@/lib/types";
+import type { StockHolding, StockConfig, StockCurrency } from "@/lib/types";
 import { useRebalanceCalculator } from "@/hooks/use-rebalance-calculator";
+import {
+  calculateLimitDiscountPercent,
+  calculateLimitPrice,
+} from "@/lib/rebalance-calculator";
 
 interface Props {
   holdings: StockHolding[];
   config: StockConfig;
   priceBySymbolILS: Record<string, number>;
+  usdToIls: number;
 }
 
 /** Format number with commas: 100000 → "100,000" */
@@ -17,10 +30,211 @@ function formatNum(n: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+function formatLimitValue(value: number): string {
+  return value
+    .toFixed(2)
+    .replace(/\.00$/, "")
+    .replace(/(\.\d)0$/, "$1");
+}
+
+function LimitPriceCalculator({
+  currentPrice,
+  currency,
+  securityName,
+  symbol,
+}: {
+  currentPrice: number;
+  currency: StockCurrency;
+  securityName: string;
+  symbol: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState("");
+  const [limitPrice, setLimitPrice] = useState("");
+  const titleId = useId();
+  const unit = currency === "ILS" ? "אג׳" : "$";
+  const numericLimit = Number.parseFloat(limitPrice);
+  const isAboveMarket =
+    Number.isFinite(numericLimit) && numericLimit > currentPrice;
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [open]);
+
+  function handleDiscountChange(value: string) {
+    setDiscountPercent(value);
+    if (value === "") {
+      setLimitPrice("");
+      return;
+    }
+
+    const percent = Number.parseFloat(value);
+    const nextLimit = calculateLimitPrice(currentPrice, percent);
+    setLimitPrice(
+      Number.isFinite(nextLimit) ? formatLimitValue(nextLimit) : "",
+    );
+  }
+
+  function handleLimitChange(value: string) {
+    setLimitPrice(value);
+    if (value === "") {
+      setDiscountPercent("");
+      return;
+    }
+
+    const price = Number.parseFloat(value);
+    const nextPercent = calculateLimitDiscountPercent(currentPrice, price);
+    setDiscountPercent(
+      Number.isFinite(nextPercent) ? formatLimitValue(nextPercent) : "",
+    );
+  }
+
+  if (currentPrice <= 0) {
+    return <span className="text-muted">&ndash;</span>;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-sm btn-outline-primary rounded-pill d-inline-flex align-items-center gap-1 px-2"
+        style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+      >
+        <ShoppingCart size={13} />
+        קנייה
+      </button>
+
+      {open && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3"
+          style={{ zIndex: 1060, backgroundColor: "rgba(15, 23, 42, 0.45)" }}
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setOpen(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-4 shadow-lg w-100 text-start"
+            style={{ maxWidth: 460 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+          >
+            <div className="d-flex align-items-start justify-content-between gap-3 p-4 border-bottom">
+              <div>
+                <h2 id={titleId} className="h5 fw-bold mb-1">
+                  הגדרת לימיט לקנייה
+                </h2>
+                <div className="text-muted small">
+                  {securityName} <span dir="ltr">({symbol})</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-light rounded-circle d-flex align-items-center justify-content-center p-0"
+                style={{ width: 32, height: 32 }}
+                aria-label="סגור"
+                onClick={() => setOpen(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <div className="bg-light rounded-3 p-3 mb-3 d-flex align-items-center justify-content-between">
+                <span className="text-muted small">מחיר נוכחי</span>
+                <span className="fw-bold" dir="ltr">
+                  {formatNum(Number(formatLimitValue(currentPrice)))} {unit}
+                </span>
+              </div>
+
+              <p className="text-muted small mb-3">
+                אפשר להזין אחוז או מחיר לימיט — השדה השני יחושב אוטומטית.
+              </p>
+
+              <div className="row g-3" dir="ltr">
+                <label className="col-6 text-start mb-0">
+                  <span className="d-block fw-semibold small mb-1">
+                    % מתחת לשוק
+                  </span>
+                  <div className="input-group">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      className={`form-control text-center ${isAboveMarket ? "is-invalid" : ""}`}
+                      min={0}
+                      max={99.99}
+                      step="0.1"
+                      placeholder="0"
+                      aria-label="אחוז מתחת למחיר השוק"
+                      value={discountPercent}
+                      onChange={(event) =>
+                        handleDiscountChange(event.target.value)
+                      }
+                    />
+                    <span className="input-group-text">%</span>
+                  </div>
+                </label>
+                <label className="col-6 text-start mb-0">
+                  <span className="d-block fw-semibold small mb-1">
+                    מחיר לימיט
+                  </span>
+                  <div className="input-group">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      className={`form-control text-center ${isAboveMarket ? "is-invalid" : ""}`}
+                      min={0}
+                      max={currentPrice}
+                      step="0.01"
+                      placeholder="0"
+                      aria-label={`מחיר לימיט ב${currency === "ILS" ? "אגורות" : "דולרים"}`}
+                      value={limitPrice}
+                      onChange={(event) =>
+                        handleLimitChange(event.target.value)
+                      }
+                    />
+                    <span className="input-group-text">{unit}</span>
+                  </div>
+                </label>
+              </div>
+
+              {isAboveMarket && (
+                <div className="text-danger small mt-2">
+                  מחיר הלימיט גבוה ממחיר השוק
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 border-top d-flex justify-content-end">
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary px-4"
+                onClick={() => setOpen(false)}
+              >
+                סגור
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function RebalanceCalculator({
   holdings,
   config,
   priceBySymbolILS,
+  usdToIls,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -263,6 +477,7 @@ export function RebalanceCalculator({
                     <thead>
                       <tr style={{ fontSize: "0.85rem", color: "#6c757d" }}>
                         <th className="fw-semibold pb-3 text-start">תיק</th>
+                        <th className="fw-semibold pb-3 text-center">קנייה</th>
                         <th className="fw-semibold pb-3 text-center">
                           % נוכחי
                         </th>
@@ -324,6 +539,43 @@ export function RebalanceCalculator({
                               </span>{" "}
                               ({row.currentPercent.toFixed(2)}%)
                             </div>
+                          </td>
+                          {/* לימיט */}
+                          <td className="text-center py-3">
+                            {selectedStocks[row.label] && row.stockPrice > 0 ? (
+                              (() => {
+                                const symbol = selectedStocks[row.label];
+                                const definition = config.stocks.find(
+                                  (stock) => stock.symbol === symbol,
+                                );
+                                const rawInfo = rawPriceBySymbol[symbol];
+                                const currency =
+                                  rawInfo?.currency ??
+                                  definition?.currency ??
+                                  "ILS";
+                                const currentTradingPrice =
+                                  currency === "ILS"
+                                    ? (rawInfo?.raw || row.stockPrice) * 100
+                                    : rawInfo?.raw ||
+                                      (usdToIls > 0
+                                        ? row.stockPrice / usdToIls
+                                        : 0);
+
+                                return (
+                                  <LimitPriceCalculator
+                                    key={symbol}
+                                    currentPrice={currentTradingPrice}
+                                    currency={currency}
+                                    securityName={
+                                      definition?.displayName || row.label
+                                    }
+                                    symbol={symbol}
+                                  />
+                                );
+                              })()
+                            ) : (
+                              <span className="text-muted">&ndash;</span>
+                            )}
                           </td>
                           {/* % נוכחי */}
                           <td

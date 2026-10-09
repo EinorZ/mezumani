@@ -53,6 +53,11 @@ export function useBulkSelection(rows: Transaction[]) {
     }
   }
 
+  function selectRows(rowsToSelect: Transaction[]) {
+    setSelectedRows(new Set(rowsToSelect.filter((t) => t.row >= 0).map((t) => t.row)));
+    lastCheckedRef.current = null;
+  }
+
   function clearSelection() {
     setSelectedRows(new Set());
     setBulkCategory("");
@@ -67,6 +72,7 @@ export function useBulkSelection(rows: Transaction[]) {
     setBulkCard,
     toggleRow,
     selectAll,
+    selectRows,
     clearSelection,
   };
 }

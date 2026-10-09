@@ -327,6 +327,7 @@ export function StockDashboard({
           holdings={data.holdings}
           config={config}
           priceBySymbolILS={data.priceBySymbolILS}
+          usdToIls={data.usdToIls}
         />
       )}
 

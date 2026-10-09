@@ -145,7 +145,7 @@ export function TransactionTable({
     colorMap,
     cardColorMap,
     categoryNames: categories,
-    config: { categoryMappings },
+    config: { categoryMappings, vacationCategories },
   } = usePageConfig();
   const sheetMonth = String(parseMonthFromTitle(sheetTitle));
   const defaultAddForm = { ...emptyForm, month: sheetMonth };
@@ -162,6 +162,7 @@ export function TransactionTable({
   const mobileSheetCloseRef = useRef<HTMLButtonElement>(null);
   const [mobileAddForm, setMobileAddForm] = useState(defaultAddForm);
   const [bulkVacationDest, setBulkVacationDest] = useState("");
+  const [bulkVacationCategory, setBulkVacationCategory] = useState("");
 
   useEffect(() => {
     if (!showMobileAdd) return;
@@ -247,8 +248,23 @@ export function TransactionTable({
     setBulkCard,
     toggleRow,
     selectAll,
+    selectRows,
     clearSelection,
   } = useBulkSelection(filteredRows);
+
+  function clearBulkSelection() {
+    clearSelection();
+    setBulkVacationDest("");
+    setBulkVacationCategory("");
+  }
+
+  const invalidVacationCategoryRows = useMemo(() => {
+    if (!isVacation || vacationCategories.length === 0) return [];
+    const validCategories = new Set(vacationCategories.map((c) => c.name));
+    return sortedRows.filter(
+      (t) => t.row >= 0 && !validCategories.has(t.category),
+    );
+  }, [isVacation, sortedRows, vacationCategories]);
 
   // Derive unique categories and cards from current transactions for filter options
   const activeCategories = useMemo(() => {
@@ -359,7 +375,7 @@ export function TransactionTable({
     }
 
     optimistic.applyBulkEdits(updates, filteredRows);
-    clearSelection();
+    clearBulkSelection();
 
     optimistic.beginInflight();
     bulkEditAction(sheetTitle, updates)
@@ -377,7 +393,7 @@ export function TransactionTable({
     const rows = [...selectedRows];
 
     optimistic.applyBulkDeletes(rows);
-    clearSelection();
+    clearBulkSelection();
 
     optimistic.beginInflight();
     bulkDeleteAction(sheetTitle, rows)
@@ -395,7 +411,7 @@ export function TransactionTable({
     const rows = [...selectedRows];
 
     optimistic.applyBulkTentative(rows, tentative, filteredRows);
-    clearSelection();
+    clearBulkSelection();
 
     optimistic.beginInflight();
     bulkTentativeAction(sheetTitle, rows, tentative)
@@ -417,13 +433,13 @@ export function TransactionTable({
         date: t.date,
         expense: t.expense,
         amount: t.amount,
-        category: t.category,
+        category: bulkVacationCategory,
         card: t.card,
         notes: "",
       }));
 
     optimistic.applyBulkDeletes(rows);
-    clearSelection();
+    clearBulkSelection();
 
     const vs = vacationSheets?.find((s) => s.title === bulkVacationDest);
     optimistic.beginInflight();
@@ -465,7 +481,7 @@ export function TransactionTable({
     }
 
     if (e.key === "Escape") {
-      if (selectedRows.size > 0) clearSelection();
+      if (selectedRows.size > 0) clearBulkSelection();
       else if (editingRow !== null) setEditingRow(null);
     }
   });
@@ -496,7 +512,7 @@ export function TransactionTable({
   function startEdit(t: Transaction) {
     // Don't edit optimistic rows
     if (t.row < 0) return;
-    clearSelection();
+    clearBulkSelection();
     setEditingRow(t.row);
     // Put full date in day field (e.g. "14.01"); buildDate will parse it back
     const dayDisplay = formatDateDisplay(t.date);
@@ -641,6 +657,24 @@ export function TransactionTable({
             className="btn-close"
             onClick={() => setError(null)}
           />
+        </div>
+      )}
+
+      {invalidVacationCategoryRows.length > 0 && (
+        <div className="alert alert-warning py-2 small d-flex align-items-center justify-content-between gap-2 flex-wrap">
+          <span>
+            {invalidVacationCategoryRows.length} הוצאות עם קטגוריה שאינה קטגוריית טיול
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-dark"
+            onClick={() => {
+              clearFilters();
+              selectRows(invalidVacationCategoryRows);
+            }}
+          >
+            בחר לתיקון קטגוריה
+          </button>
         </div>
       )}
 
@@ -994,7 +1028,7 @@ export function TransactionTable({
             <span className="fw-bold small">{selectedRows.size} נבחרו</span>
             <button
               className="btn btn-sm btn-outline-dark"
-              onClick={clearSelection}
+              onClick={clearBulkSelection}
             >
               ✕
             </button>
@@ -1042,7 +1076,11 @@ export function TransactionTable({
                 className="form-select form-select-sm"
                 style={{ maxWidth: 130 }}
                 value={bulkVacationDest}
-                onChange={(e) => setBulkVacationDest(e.target.value)}
+                onChange={(e) => {
+                  setBulkVacationDest(e.target.value);
+                  setBulkVacationCategory("");
+                }}
+                aria-label="טיול יעד"
               >
                 <option value="">✈ טיול...</option>
                 {vacationSheets.map((vs) => (
@@ -1051,6 +1089,22 @@ export function TransactionTable({
                   </option>
                 ))}
               </select>
+              {bulkVacationDest && (
+                <select
+                  className="form-select form-select-sm"
+                  style={{ maxWidth: 150 }}
+                  value={bulkVacationCategory}
+                  onChange={(e) => setBulkVacationCategory(e.target.value)}
+                  aria-label="קטגוריית טיול להעברה"
+                >
+                  <option value="">ללא קטגוריית טיול</option>
+                  {vacationCategories.map((category) => (
+                    <option key={category.name} value={category.name}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 className="btn btn-sm btn-outline-info"
                 onClick={handleBulkMoveToVacation}

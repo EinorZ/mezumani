@@ -1,5 +1,29 @@
 import type { LabelAllocation, StockDefinition } from "./types";
 
+/**
+ * Convert a desired discount from the current market price into a limit price.
+ * Prices stay in the caller's trading unit (agorot for Israeli securities,
+ * dollars for US securities).
+ */
+export function calculateLimitPrice(
+  currentPrice: number,
+  discountPercent: number,
+): number {
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return 0;
+  if (!Number.isFinite(discountPercent)) return 0;
+  return currentPrice * (1 - discountPercent / 100);
+}
+
+/** Calculate how far a limit price is below the current market price. */
+export function calculateLimitDiscountPercent(
+  currentPrice: number,
+  limitPrice: number,
+): number {
+  if (!Number.isFinite(currentPrice) || currentPrice <= 0) return 0;
+  if (!Number.isFinite(limitPrice)) return 0;
+  return ((currentPrice - limitPrice) / currentPrice) * 100;
+}
+
 export interface RebalanceTableRow {
   label: string;
   currentValue: number;
@@ -57,9 +81,11 @@ export function computeRebalanceTableRows(
     if (rec.label in manualShareCounts) {
       shareCounts[rec.label] = manualShareCounts[rec.label];
     } else {
-      const allocatedAmount = effectiveAmounts[rec.label] ?? rec.recommendedAmount;
+      const allocatedAmount =
+        effectiveAmounts[rec.label] ?? rec.recommendedAmount;
       const price = priceForLabel[rec.label];
-      shareCounts[rec.label] = price > 0 ? Math.floor(allocatedAmount / price) : 0;
+      shareCounts[rec.label] =
+        price > 0 ? Math.floor(allocatedAmount / price) : 0;
     }
   }
 
@@ -76,7 +102,8 @@ export function computeRebalanceTableRows(
       if (total <= 0) return Infinity;
       let sumSqDelta = 0;
       for (const rec of recommendations) {
-        const value = rec.currentValue + counts[rec.label] * priceForLabel[rec.label];
+        const value =
+          rec.currentValue + counts[rec.label] * priceForLabel[rec.label];
         const pct = (value / total) * 100;
         const delta = pct - rec.targetPercent;
         sumSqDelta += delta * delta;
@@ -208,7 +235,8 @@ export function calculateRebalance(
     recommendations.push({
       label: alloc.label,
       currentValue,
-      currentPercent: currentTotal > 0 ? (currentValue / currentTotal) * 100 : 0,
+      currentPercent:
+        currentTotal > 0 ? (currentValue / currentTotal) * 100 : 0,
       recommendedAmount,
       projectedValue,
       projectedPercent: newTotal > 0 ? (projectedValue / newTotal) * 100 : 0,
@@ -261,7 +289,8 @@ export function recalcProjections(
     return {
       label: alloc.label,
       currentValue,
-      currentPercent: currentTotal > 0 ? (currentValue / currentTotal) * 100 : 0,
+      currentPercent:
+        currentTotal > 0 ? (currentValue / currentTotal) * 100 : 0,
       recommendedAmount,
       projectedValue,
       projectedPercent: newTotal > 0 ? (projectedValue / newTotal) * 100 : 0,
