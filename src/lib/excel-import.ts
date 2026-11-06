@@ -11,29 +11,30 @@ function normalizeHeader(value: unknown): string {
 }
 
 function excelSerialToDate(serial: number): string {
-  const epoch = new Date(1899, 11, 30);
+  const epoch = new Date(Date.UTC(1899, 11, 30));
   const date = new Date(epoch.getTime() + serial * 86_400_000);
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${day}.${month}`;
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}.${month}.${date.getUTCFullYear()}`;
 }
 
-function formatImportedDate(rawDate: unknown): string {
+export function formatImportedDate(rawDate: unknown): string {
   if (typeof rawDate === "number") return excelSerialToDate(rawDate);
   if (rawDate instanceof Date) {
     const day = String(rawDate.getDate()).padStart(2, "0");
     const month = String(rawDate.getMonth() + 1).padStart(2, "0");
-    return `${day}.${month}`;
+    return `${day}.${month}.${rawDate.getFullYear()}`;
   }
   if (!rawDate) return "";
 
   const raw = String(rawDate).trim().split(" ")[0];
   const parts = raw.split(/[/.-]/);
   if (parts.length >= 3 && parts[0].length === 4) {
-    return `${parts[2].padStart(2, "0")}.${parts[1].padStart(2, "0")}`;
+    return `${parts[2].padStart(2, "0")}.${parts[1].padStart(2, "0")}.${parts[0]}`;
   }
   if (parts.length >= 2) {
-    return `${parts[0].padStart(2, "0")}.${parts[1].padStart(2, "0")}`;
+    const year = parts[2] ? `.${parts[2]}` : "";
+    return `${parts[0].padStart(2, "0")}.${parts[1].padStart(2, "0")}${year}`;
   }
   return "";
 }

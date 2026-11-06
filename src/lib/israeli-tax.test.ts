@@ -44,6 +44,28 @@ test("annual surtax estimate includes both general and capital layers", () => {
   closeTo(result.totalTax, result.generalTax + result.capitalTax);
 });
 
+test("annual surtax includes salary above the threshold without added capital income", () => {
+  const result = calcAnnualYasafTax({
+    employmentIncome: 806_252 + 2 * 37_500,
+    capitalIncome: 0,
+  });
+
+  closeTo(result.generalTax, 4_790.76);
+  closeTo(result.capitalTax, 0);
+  closeTo(result.totalTax, 4_790.76);
+});
+
+test("annual surtax retains the salary liability when capital income is added", () => {
+  const result = calcAnnualYasafTax({
+    employmentIncome: 881_252,
+    capitalIncome: 50_000,
+  });
+
+  closeTo(result.generalTax, 6_290.76);
+  closeTo(result.capitalTax, 0);
+  closeTo(result.totalTax, 6_290.76);
+});
+
 test("general surtax applies only to the portion crossing the threshold", () => {
   const result = calcYasafTax({
     baseTaxableIncome: YASAF_THRESHOLD - 10_000,

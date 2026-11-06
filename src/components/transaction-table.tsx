@@ -73,7 +73,8 @@ function parseDate(d: string): number {
     parts.length >= 3
       ? parseInt(parts[2], 10) || 0
       : new Date().getFullYear() % 100;
-  return year * 10000 + month * 100 + day;
+  const fullYear = year < 100 ? 2000 + year : year;
+  return fullYear * 10000 + month * 100 + day;
 }
 
 function compareTransactions(
@@ -99,7 +100,7 @@ function compareTransactions(
 
 /** Column flex shorthand (grow shrink basis) */
 const COL = {
-  date: "0 0 10%",
+  date: "0 0 105px",
   expense: "1 1 30%",
   amount: "0 0 18%",
   category: "0 0 22%",
@@ -550,8 +551,9 @@ export function TransactionTable({
         <div style={{ flex: COL.date, minWidth: 0 }}>
           <input
             className="form-control form-control-sm"
-            placeholder="יום"
-            style={{ width: "60px", ...borderlessInput }}
+            placeholder={isVacation ? "יום.חודש.שנה" : "יום"}
+            aria-label="תאריך התשלום"
+            style={{ width: "100%", ...borderlessInput }}
             value={form.day}
             onChange={(e) => setForm({ ...form, day: e.target.value })}
           />
@@ -663,7 +665,8 @@ export function TransactionTable({
       {invalidVacationCategoryRows.length > 0 && (
         <div className="alert alert-warning py-2 small d-flex align-items-center justify-content-between gap-2 flex-wrap">
           <span>
-            {invalidVacationCategoryRows.length} הוצאות עם קטגוריה שאינה קטגוריית טיול
+            {invalidVacationCategoryRows.length} הוצאות עם קטגוריה שאינה
+            קטגוריית טיול
           </span>
           <button
             type="button"
@@ -1166,9 +1169,9 @@ export function TransactionTable({
             <div className="d-flex gap-2 mb-2">
               <input
                 className="form-control form-control-sm"
-                placeholder="יום"
-                aria-label="יום בחודש"
-                style={{ width: "70px", flexShrink: 0 }}
+                placeholder={isVacation ? "יום.חודש.שנה" : "יום"}
+                aria-label="תאריך התשלום"
+                style={{ width: "120px", flexShrink: 0 }}
                 value={mobileAddForm.day}
                 onChange={(e) =>
                   setMobileAddForm({ ...mobileAddForm, day: e.target.value })

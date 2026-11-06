@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   calculateLimitDiscountPercent,
+  calculateLimitOrderCost,
   calculateLimitPrice,
   calculateRebalance,
   computeRebalanceTableRows,
@@ -15,6 +16,29 @@ test("converts between a discount percent and a limit price", () => {
 test("returns zero for a missing current market price", () => {
   assert.equal(calculateLimitPrice(0, 2), 0);
   assert.equal(calculateLimitDiscountPercent(0, 100), 0);
+});
+
+test("calculates the cost of the rebalance quantity at an ILS limit in agorot", () => {
+  assert.equal(calculateLimitOrderCost(23, 27_110, "ILS"), 6_235.3);
+  assert.equal(calculateLimitOrderCost(23, 26_500, "ILS"), 6_095);
+  assert.equal(
+    calculateLimitOrderCost(23, calculateLimitPrice(27_110, 2), "ILS"),
+    6_110.594,
+  );
+});
+
+test("keeps USD order costs in dollars and uses the supplied share quantity", () => {
+  assert.equal(calculateLimitOrderCost(3, 125.5, "USD"), 376.5);
+  assert.equal(calculateLimitOrderCost(0, 125.5, "USD"), 0);
+});
+
+test("does not calculate an order cost for invalid prices or quantities", () => {
+  for (const price of [0, -1, NaN, Infinity]) {
+    assert.equal(calculateLimitOrderCost(23, price, "ILS"), null);
+  }
+  for (const count of [-1, 1.5, NaN, Infinity]) {
+    assert.equal(calculateLimitOrderCost(count, 26_500, "ILS"), null);
+  }
 });
 
 test("directs new investment to the underweight allocation", () => {

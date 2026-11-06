@@ -15,6 +15,7 @@ import type { StockHolding, StockConfig, StockCurrency } from "@/lib/types";
 import { useRebalanceCalculator } from "@/hooks/use-rebalance-calculator";
 import {
   calculateLimitDiscountPercent,
+  calculateLimitOrderCost,
   calculateLimitPrice,
 } from "@/lib/rebalance-calculator";
 
@@ -42,11 +43,15 @@ function LimitPriceCalculator({
   currency,
   securityName,
   symbol,
+  shareCount,
+  usdToIls,
 }: {
   currentPrice: number;
   currency: StockCurrency;
   securityName: string;
   symbol: string;
+  shareCount: number;
+  usdToIls: number;
 }) {
   const [open, setOpen] = useState(false);
   const [discountPercent, setDiscountPercent] = useState("");
@@ -56,6 +61,15 @@ function LimitPriceCalculator({
   const numericLimit = Number.parseFloat(limitPrice);
   const isAboveMarket =
     Number.isFinite(numericLimit) && numericLimit > currentPrice;
+  const orderCost = calculateLimitOrderCost(
+    shareCount,
+    limitPrice === "" ? currentPrice : numericLimit,
+    currency,
+  );
+  const orderCostILS =
+    orderCost !== null && Number.isFinite(usdToIls) && usdToIls > 0
+      ? orderCost * usdToIls
+      : null;
 
   useEffect(() => {
     if (!open) return;
@@ -123,7 +137,11 @@ function LimitPriceCalculator({
         >
           <div
             className="bg-white rounded-4 shadow-lg w-100 text-start"
-            style={{ maxWidth: 460 }}
+            style={{
+              maxWidth: 460,
+              maxHeight: "calc(100dvh - 2rem)",
+              overflowY: "auto",
+            }}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
@@ -212,6 +230,49 @@ function LimitPriceCalculator({
                   מחיר הלימיט גבוה ממחיר השוק
                 </div>
               )}
+
+              <div
+                className="bg-light rounded-3 p-3 mt-3"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                <div className="d-flex align-items-center justify-content-between gap-3 mb-2">
+                  <span className="text-muted small">כמות מניות לקנייה</span>
+                  <span className="fw-bold" dir="ltr">
+                    {formatNum(shareCount)}
+                  </span>
+                </div>
+                <div className="d-flex align-items-start justify-content-between gap-3">
+                  <span className="fw-semibold small">סה״כ עלות הקנייה</span>
+                  <div className="text-end">
+                    <div className="fw-bold text-primary" dir="ltr">
+                      {orderCost === null
+                        ? "—"
+                        : currency === "ILS"
+                          ? formatCurrency(orderCost)
+                          : orderCost.toLocaleString("he-IL", {
+                              style: "currency",
+                              currency: "USD",
+                            })}
+                    </div>
+                    {currency === "USD" && orderCostILS !== null && (
+                      <div className="text-muted small" dir="ltr">
+                        ≈ {formatCurrency(orderCostILS)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <p className="text-muted small mb-0 mt-2">
+                  הכמות לפי מחשבון האיזון; העלות{" "}
+                  {limitPrice === "" ? "לפי מחיר השוק" : "לפי מחיר הלימיט"}, לפני
+                  עמלות.
+                </p>
+                {orderCost === null && (
+                  <p className="text-danger small mb-0 mt-2">
+                    יש להזין מחיר לימיט גדול מאפס.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="p-3 border-top d-flex justify-content-end">
@@ -570,6 +631,8 @@ export function RebalanceCalculator({
                                       definition?.displayName || row.label
                                     }
                                     symbol={symbol}
+                                    shareCount={row.shareCount}
+                                    usdToIls={usdToIls}
                                   />
                                 );
                               })()

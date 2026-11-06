@@ -1,3 +1,4 @@
+import { extractMonthFromDate } from "./transaction-dates";
 import {
   getGoogleSheetsClient,
   householdSpreadsheetId,
@@ -33,6 +34,8 @@ import type {
   StockCurrency,
   InvestmentTerm,
   TransactionType,
+  AnnualPortfolioPerformance,
+  AnnualPerformanceStatus,
 } from "./types";
 import {
   SETTINGS_SHEET_NAME,
@@ -75,6 +78,8 @@ import {
   SETTINGS_RANGE_YEAR_RETURN_PERCENTS,
   STOCKS_SHEET_NAME,
   STOCK_SHEET_HEADERS,
+  ANNUAL_PERFORMANCE_SHEET_NAME,
+  ANNUAL_PERFORMANCE_HEADERS,
   DEFAULT_CATEGORY_COLOR,
   HEBREW_MONTHS,
 } from "./constants";
@@ -626,7 +631,8 @@ export async function batchImportTransactions(
   for (const data of transactions) {
     const values = isVacation
       ? [
-          data.date,
+          // Keep the explicit payment year visible even in date-formatted cells.
+          data.date ? `'${data.date}` : "",
           data.expense,
           String(data.amount),
           data.card,
@@ -1984,26 +1990,6 @@ export async function getVacationData(title: string): Promise<VacationData> {
 }
 
 /**
- * Extract a Hebrew month title from a date string like "15/1" or "15/01".
- * Returns e.g. "ינואר 26" based on current year.
- */
-function extractMonthFromDate(dateStr: string): string | null {
-  const parts = dateStr.split("/");
-  if (parts.length < 2) return null;
-  const month = parseInt(parts[1], 10);
-  if (isNaN(month) || month < 1 || month > 12) return null;
-  const yearSuffix = new Date().getFullYear() % 100;
-  // If we have a year part (e.g., "15/1/26"), use it
-  let yr = yearSuffix;
-  if (parts.length >= 3) {
-    const parsedYear = parseInt(parts[2], 10);
-    if (!isNaN(parsedYear))
-      yr = parsedYear < 100 ? parsedYear : parsedYear % 100;
-  }
-  return `${HEBREW_MONTHS[month - 1]} ${yr}`;
-}
-
-/**
  * Create a vacation sheet with appropriate headers and validations.
  */
 export async function createVacationSheet(
@@ -2519,6 +2505,162 @@ export async function saveYearReturns(
           range: `'${SETTINGS_SHEET_NAME}'!${SETTINGS_RANGE_YEAR_RETURN_PERCENTS}`,
           values: pctValues,
         },
+      ],
+    },
+  });
+}
+
+// ---- Annual portfolio performance persistence ----
+
+let _annualPerformanceSheetConfirmed = false;
+
+async function findAnnualPerformanceSheetId(): Promise<number | null> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    fields: "sheets.properties.sheetId,sheets.properties.title",
+  });
+  const match = res.data.sheets?.find(
+    (sheet) => sheet.properties?.title === ANNUAL_PERFORMANCE_SHEET_NAME,
+  );
+  return match?.properties?.sheetId ?? null;
+}
+
+export async function ensureAnnualPerformanceSheet(): Promise<void> {
+  if (_annualPerformanceSheetConfirmed) return;
+  const existingId = await findAnnualPerformanceSheetId();
+  if (existingId !== null) {
+    _annualPerformanceSheetConfirmed = true;
+    return;
+  }
+
+  const sheets = getSheets();
+  const addRes = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: ANNUAL_PERFORMANCE_SHEET_NAME,
+              rightToLeft: true,
+            },
+          },
+        },
+      ],
+    },
+  });
+  const sheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+  if (sheetId === undefined) {
+    throw new Error("Failed to create annual performance sheet");
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${ANNUAL_PERFORMANCE_SHEET_NAME}'!A1:K1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [ANNUAL_PERFORMANCE_HEADERS as unknown as string[]],
+    },
+  });
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              gridProperties: { frozenRowCount: 1 },
+            },
+            fields: "gridProperties.frozenRowCount",
+          },
+        },
+      ],
+    },
+  });
+  _annualPerformanceSheetConfirmed = true;
+}
+
+export async function getAnnualPerformanceRecords(): Promise<
+  AnnualPortfolioPerformance[]
+> {
+  const sheetId = await findAnnualPerformanceSheetId();
+  if (sheetId === null) return [];
+
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${ANNUAL_PERFORMANCE_SHEET_NAME}'!A2:K`,
+  });
+  return (res.data.values ?? [])
+    .map((row): AnnualPortfolioPerformance | null => {
+      const year = Number(row[0]);
+      const scope = (row[1] || "all") as InvestmentTerm | "all";
+      const status = row[2] as AnnualPerformanceStatus;
+      if (!Number.isInteger(year) || status !== "final") return null;
+      const openingValueILS = parseNumber(row[3]);
+      const purchasesILS = parseNumber(row[4]);
+      const salesILS = parseNumber(row[5]);
+      const closingValueILS = parseNumber(row[6]);
+      const profitLossILS = parseNumber(row[7]);
+      const returnPercent = parseNumber(row[8]);
+      return {
+        year,
+        scope,
+        status,
+        label: String(year),
+        startDate: `${year}-01-01`,
+        endDate: `${year}-12-31`,
+        openingValueILS,
+        purchasesILS,
+        salesILS,
+        closingValueILS,
+        profitLossILS,
+        basisILS: openingValueILS + purchasesILS,
+        returnPercent,
+        missingSymbols: [],
+        transactionFingerprint: row[9] ?? "",
+        calculatedAt: row[10] ?? "",
+      };
+    })
+    .filter((record): record is AnnualPortfolioPerformance => record !== null);
+}
+
+export async function saveAnnualPerformanceRecord(
+  record: AnnualPortfolioPerformance,
+): Promise<void> {
+  await ensureAnnualPerformanceSheet();
+  const sheets = getSheets();
+  const existing = await sheets.spreadsheets.values.get({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${ANNUAL_PERFORMANCE_SHEET_NAME}'!A2:B`,
+  });
+  const rows = existing.data.values ?? [];
+  const matchIndex = rows.findIndex(
+    (row) => Number(row[0]) === record.year && (row[1] || "all") === record.scope,
+  );
+  const rowNumber = matchIndex >= 0 ? matchIndex + 2 : rows.length + 2;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: STOCKS_SPREADSHEET_ID,
+    range: `'${ANNUAL_PERFORMANCE_SHEET_NAME}'!A${rowNumber}:K${rowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [
+        [
+          record.year,
+          record.scope,
+          "final",
+          record.openingValueILS,
+          record.purchasesILS,
+          record.salesILS,
+          record.closingValueILS,
+          record.profitLossILS,
+          record.returnPercent,
+          record.transactionFingerprint,
+          record.calculatedAt,
+        ],
       ],
     },
   });

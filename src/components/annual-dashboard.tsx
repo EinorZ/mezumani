@@ -314,22 +314,27 @@ export function AnnualDashboard({
         )}
       </div>
 
-      {/* Charts row – 50/50 */}
+      {/* Monthly bars span the two stacked category charts. */}
       <div className="row g-4 mb-4">
         <div className="col-lg-6 d-flex">
           <div className="card rounded-3 border p-3 w-100 d-flex flex-column">
             <h3 className="h6 fw-bold mb-3">הוצאות לפי חודש</h3>
-            <div className="flex-grow-1" style={{ minHeight: 300 }}>
-              <MonthlyBarChart
-                data={monthlyStacked}
-                categories={activeCategories}
-                colorMap={colorMap}
-              />
+            <div
+              className="flex-grow-1 position-relative"
+              style={{ minHeight: 300 }}
+            >
+              <div className="position-absolute top-0 start-0 w-100 h-100">
+                <MonthlyBarChart
+                  data={monthlyStacked}
+                  categories={activeCategories}
+                  colorMap={colorMap}
+                />
+              </div>
             </div>
           </div>
         </div>
-        <div className="col-lg-6 d-flex">
-          <div className="card rounded-3 border p-3 w-100 d-flex flex-column">
+        <div className="col-lg-6 d-flex flex-column gap-4">
+          <div className="card rounded-3 border p-3 w-100 d-flex flex-column flex-grow-1">
             <h3 className="h6 fw-bold mb-3">לפי קטגוריה</h3>
             <div className="flex-grow-1 d-flex flex-column">
               <CategoryChart
@@ -339,13 +344,7 @@ export function AnnualDashboard({
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Category averages chart */}
-      <div className="row g-4 mb-4">
-        <div className="col-lg-6 d-flex">
-          <div className="card rounded-3 border p-3 w-100 d-flex flex-column">
+          <div className="card rounded-3 border p-3 w-100 d-flex flex-column flex-grow-1">
             <h3 className="h6 fw-bold mb-3">ממוצע חודשי לפי קטגוריה</h3>
             <div className="flex-grow-1 d-flex flex-column">
               <CategoryChart

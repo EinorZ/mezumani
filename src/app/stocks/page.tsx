@@ -11,8 +11,6 @@ export default async function StocksPage() {
       <StockDashboard
         data={dashboardData}
         config={stockConfig}
-        initialChartData={undefined}
-        initialChartRange="YTD"
         portfolioReturns={undefined}
         renderedAt={new Date().toISOString()}
       />

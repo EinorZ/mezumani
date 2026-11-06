@@ -104,6 +104,34 @@ export function MonthlyBarChart({ data, categories, colorMap }: Props) {
     [categories, colorMap, data],
   );
 
+  const { axisMax, axisTicks } = useMemo(() => {
+    const maxTotal = data.reduce(
+      (max, month) =>
+        Math.max(
+          max,
+          categories.reduce(
+            (total, category) =>
+              total + Math.max(0, Number(month[category] ?? 0)),
+            0,
+          ),
+        ),
+      0,
+    );
+    const targetStep = Math.max(1, maxTotal / 20);
+    const magnitude = 10 ** Math.floor(Math.log10(targetStep));
+    const factor = targetStep / magnitude;
+    const step = magnitude * (factor >= 5 ? 5 : factor >= 2 ? 2 : 1);
+    const axisMax = Math.max(step, Math.ceil((maxTotal * 1.04) / step) * step);
+
+    return {
+      axisMax,
+      axisTicks: Array.from(
+        { length: Math.round(axisMax / step) + 1 },
+        (_, index) => index * step,
+      ),
+    };
+  }, [categories, data]);
+
   if (data.length === 0) {
     return <p className="text-secondary text-center">אין נתונים</p>;
   }
@@ -117,27 +145,27 @@ export function MonthlyBarChart({ data, categories, colorMap }: Props) {
       >
         <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} />
         <YAxis
-          tick={{ fontSize: 11 }}
-          width={40}
-          tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-          domain={[0, "auto"]}
+          tick={{ fontSize: 11, direction: "ltr", textAnchor: "end" }}
+          width={48}
+          tickFormatter={(v: number) =>
+            v >= 1000 ? `${Number((v / 1000).toFixed(1))}k` : String(v)
+          }
+          domain={[0, axisMax]}
+          ticks={axisTicks}
+          minTickGap={8}
         />
         <Tooltip content={<CustomTooltip />} />
         {categories.map((_, rank) => {
           const key = `stack${rank}`;
           return (
-          <Bar
-            key={key}
-            dataKey={key}
-            stackId="a"
-          >
-            {rankedData.map((entry, monthIndex) => (
-              <Cell
-                key={`${key}-${monthIndex}`}
-                fill={String(entry[`${key}Color`] ?? DEFAULT_COLOR)}
-              />
-            ))}
-          </Bar>
+            <Bar key={key} dataKey={key} stackId="a">
+              {rankedData.map((entry, monthIndex) => (
+                <Cell
+                  key={`${key}-${monthIndex}`}
+                  fill={String(entry[`${key}Color`] ?? DEFAULT_COLOR)}
+                />
+              ))}
+            </Bar>
           );
         })}
       </BarChart>

@@ -1,4 +1,4 @@
-import type { LabelAllocation, StockDefinition } from "./types";
+import type { LabelAllocation, StockCurrency, StockDefinition } from "./types";
 
 /**
  * Convert a desired discount from the current market price into a limit price.
@@ -22,6 +22,19 @@ export function calculateLimitDiscountPercent(
   if (!Number.isFinite(currentPrice) || currentPrice <= 0) return 0;
   if (!Number.isFinite(limitPrice)) return 0;
   return ((currentPrice - limitPrice) / currentPrice) * 100;
+}
+
+/** Total order cost in shekels for ILS quotes in agorot, or dollars for USD. */
+export function calculateLimitOrderCost(
+  shareCount: number,
+  limitPrice: number,
+  currency: StockCurrency,
+): number | null {
+  if (!Number.isSafeInteger(shareCount) || shareCount < 0) return null;
+  if (!Number.isFinite(limitPrice) || limitPrice <= 0) return null;
+
+  const cost = shareCount * (currency === "ILS" ? limitPrice / 100 : limitPrice);
+  return Number.isFinite(cost) ? cost : null;
 }
 
 export interface RebalanceTableRow {

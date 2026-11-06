@@ -63,6 +63,15 @@ tentative amount. Creation also writes summary formulas outside that range.
 Moving transactions between monthly and vacation tabs must preserve this mapping.
 Deletion clears source cells after destination writes; it does not remove rows.
 
+The vacation tab's year groups the trip in navigation; each payment's date
+determines its spending month and year. New vacation writes store an explicit
+payment year. Transfers and imports from monthly tabs fill a missing year from
+the source tab, while preserving any year already present in the payment date.
+Vacation dates are written as literal text using a leading apostrophe with
+`USER_ENTERED`, so Google Sheets date formatting cannot hide the year on reads.
+Legacy vacation dates without a year keep their current-year interpretation;
+their original payment year cannot be inferred reliably from the trip year.
+
 ### Household settings tab
 
 The `הגדרות` tab is a column-oriented configuration store:

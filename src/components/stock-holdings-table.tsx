@@ -4,7 +4,11 @@ import { useState, useMemo } from "react";
 import { Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { formatCurrency, formatNumber } from "@/lib/utils";
 import type { StockHolding } from "@/lib/types";
-import { TERM_COLORS, TERM_TEXT_COLORS, TERM_LABELS_SHORT } from "@/lib/constants";
+import {
+  TERM_COLORS,
+  TERM_TEXT_COLORS,
+  TERM_LABELS_SHORT,
+} from "@/lib/constants";
 
 type SortKey = "name" | "value" | "pnl" | "ytd" | "quantity";
 type SortDir = "asc" | "desc";
@@ -13,12 +17,13 @@ interface Props {
   holdings: StockHolding[];
   onAddTransaction: () => void;
 }
-
 export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
   const [open, setOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
 
   function toggleGroup(label: string) {
     setCollapsedGroups((prev) => {
@@ -44,7 +49,9 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
             cmp = a.profitLoss - b.profitLoss;
             break;
           case "ytd":
-            cmp = (a.ytdChangePercent ?? -Infinity) - (b.ytdChangePercent ?? -Infinity);
+            cmp =
+              (a.ytdChangePercent ?? -Infinity) -
+              (b.ytdChangePercent ?? -Infinity);
             break;
           case "quantity":
             cmp = a.totalShares - b.totalShares;
@@ -77,12 +84,27 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
           }
         }
         const stale = !latestDate || latestDate < sixMonthsAgo;
+        const ytdHoldings = items.filter(
+          (holding) =>
+            holding.ytdProfitLossILS !== null && holding.ytdBasisILS !== null,
+        );
+        const totalYtdPnl = ytdHoldings.reduce(
+          (sum, holding) => sum + holding.ytdProfitLossILS!,
+          0,
+        );
+        const totalYtdBasis = ytdHoldings.reduce(
+          (sum, holding) => sum + holding.ytdBasisILS!,
+          0,
+        );
         return {
           label,
           holdings: sortHoldings(items),
           totalValue: items.reduce((s, h) => s + h.currentValueILS, 0),
           totalPnl: items.reduce((s, h) => s + h.profitLoss, 0),
           totalInvested: items.reduce((s, h) => s + h.totalInvestedILS, 0),
+          totalYtdPnl: totalYtdBasis > 0 ? totalYtdPnl : null,
+          totalYtdPercent:
+            totalYtdBasis > 0 ? (totalYtdPnl / totalYtdBasis) * 100 : null,
           stale,
         };
       })
@@ -102,7 +124,7 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
     sortKey === key ? (sortDir === "desc" ? " ▼" : " ▲") : "";
 
   return (
-    <div className="card rounded-3 border mb-4 overflow-hidden">
+    <div className="card rounded-3 border mb-4">
       {/* Collapsible header */}
       <div
         className="d-flex align-items-center justify-content-between px-3 py-3 border-bottom"
@@ -110,121 +132,151 @@ export function StockHoldingsTable({ holdings, onAddTransaction }: Props) {
         onClick={() => setOpen((v) => !v)}
       >
         <div className="d-flex align-items-center gap-2">
-          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>אחזקות</span>
-          <span className="badge rounded-pill bg-light text-secondary border" style={{ fontSize: "0.7rem" }}>{holdings.length}</span>
+          <span className="fw-bold" style={{ fontSize: "0.9rem" }}>
+            אחזקות
+          </span>
+          <span
+            className="badge rounded-pill bg-light text-secondary border"
+            style={{ fontSize: "0.7rem" }}
+          >
+            {holdings.length}
+          </span>
         </div>
         <div className="d-flex align-items-center gap-2">
           <button
             className="btn btn-sm btn-success rounded-pill"
             style={{ fontSize: "0.75rem" }}
-            onClick={(e) => { e.stopPropagation(); onAddTransaction(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddTransaction();
+            }}
           >
             <Plus size={12} className="me-1" />
             הוסף עסקה
           </button>
-          {open ? <ChevronUp size={16} className="text-muted" /> : <ChevronDown size={16} className="text-muted" />}
+          {open ? (
+            <ChevronUp size={16} className="text-muted" />
+          ) : (
+            <ChevronDown size={16} className="text-muted" />
+          )}
         </div>
       </div>
 
-      {open && <>
-      {/* Desktop table */}
-      <div className="d-none d-lg-block p-3">
-        <div className="tx-header">
-          <span
-            className="tx-header-col"
-            style={{ flex: 2 }}
-            onClick={() => handleSort("name")}
-          >
-            שם{sortArrow("name")}
-          </span>
-          <span className="tx-header-col" style={{ flex: 0.7 }}>
-            סוג
-          </span>
-          <span
-            className="tx-header-col"
-            style={{ flex: 0.7 }}
-            onClick={() => handleSort("quantity")}
-          >
-            כמות{sortArrow("quantity")}
-          </span>
-          <span className="tx-header-col" style={{ flex: 1 }}>
-            עלות ממוצעת
-          </span>
-          <span className="tx-header-col" style={{ flex: 1 }}>
-            מחיר נוכחי
-          </span>
-          <span
-            className="tx-header-col"
-            style={{ flex: 1 }}
-            onClick={() => handleSort("value")}
-          >
-            שווי{sortArrow("value")}
-          </span>
-          <span
-            className="tx-header-col"
-            style={{ flex: 1.2 }}
-            onClick={() => handleSort("pnl")}
-          >
-            רווח/הפסד{sortArrow("pnl")}
-          </span>
-          <span
-            className="tx-header-col"
-            style={{ flex: 0.7 }}
-            onClick={() => handleSort("ytd")}
-          >
-            YTD{sortArrow("ytd")}
-          </span>
-        </div>
-        {grouped.map((g) => (
-          <div key={g.label}>
-            <LabelGroupHeader
-              label={g.label}
-              totalValue={g.totalValue}
-              totalPnl={g.totalPnl}
-              totalInvested={g.totalInvested}
-              collapsed={collapsedGroups.has(g.label)}
-              onToggle={() => toggleGroup(g.label)}
-              stale={g.stale}
-            />
-            {!collapsedGroups.has(g.label) && g.holdings.map((h) => (
-              <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
-            ))}
-          </div>
-        ))}
-        {grouped.length === 0 && (
-          <div className="text-center text-muted small py-3">
-            אין אחזקות להצגה
-          </div>
-        )}
-      </div>
-
-      {/* Mobile cards */}
-      <div className="d-lg-none p-3">
-        {grouped.map((g) => (
-          <div key={g.label}>
-            <div
-              className="d-flex align-items-center justify-content-between mb-2 mt-1"
-              style={{ borderBottom: "1px solid #dee2e6", paddingBottom: "0.25rem", cursor: "pointer" }}
-              onClick={() => toggleGroup(g.label)}
-            >
-              <div className="d-flex align-items-center gap-1">
-                {collapsedGroups.has(g.label) ? <ChevronDown size={14} className="text-muted" /> : <ChevronUp size={14} className="text-muted" />}
-                <span className="fw-semibold small">{g.label}</span>
-              </div>
-              <span className="small text-muted">{formatCurrency(g.totalValue)}</span>
+      {open && (
+        <>
+          {/* Desktop table */}
+          <div className="stock-holdings-table d-none d-lg-block p-3">
+            <div className="tx-header stock-holdings-table-header">
+              <span
+                className="tx-header-col"
+                style={{ flex: 2 }}
+                onClick={() => handleSort("name")}
+              >
+                שם{sortArrow("name")}
+              </span>
+              <span className="tx-header-col" style={{ flex: 0.7 }}>
+                סוג
+              </span>
+              <span
+                className="tx-header-col"
+                style={{ flex: 0.7 }}
+                onClick={() => handleSort("quantity")}
+              >
+                כמות{sortArrow("quantity")}
+              </span>
+              <span className="tx-header-col" style={{ flex: 1 }}>
+                עלות ממוצעת
+              </span>
+              <span className="tx-header-col" style={{ flex: 1 }}>
+                מחיר נוכחי
+              </span>
+              <span
+                className="tx-header-col"
+                style={{ flex: 1 }}
+                onClick={() => handleSort("value")}
+              >
+                שווי{sortArrow("value")}
+              </span>
+              <span
+                className="tx-header-col"
+                style={{ flex: 1.2 }}
+                onClick={() => handleSort("pnl")}
+              >
+                רווח כולל{sortArrow("pnl")}
+              </span>
+              <span
+                className="tx-header-col"
+                style={{ flex: 1.2 }}
+                onClick={() => handleSort("ytd")}
+              >
+                YTD{sortArrow("ytd")}
+              </span>
             </div>
-            {!collapsedGroups.has(g.label) && g.holdings.map((h) => (
-              <HoldingCard key={`${h.symbol}-${h.term}-m`} holding={h} />
+            {grouped.map((g) => (
+              <div key={g.label}>
+                <LabelGroupHeader
+                  label={g.label}
+                  totalValue={g.totalValue}
+                  totalPnl={g.totalPnl}
+                  totalInvested={g.totalInvested}
+                  totalYtdPnl={g.totalYtdPnl}
+                  totalYtdPercent={g.totalYtdPercent}
+                  collapsed={collapsedGroups.has(g.label)}
+                  onToggle={() => toggleGroup(g.label)}
+                  stale={g.stale}
+                />
+                {!collapsedGroups.has(g.label) &&
+                  g.holdings.map((h) => (
+                    <HoldingRow key={`${h.symbol}-${h.term}`} holding={h} />
+                  ))}
+              </div>
             ))}
+            {grouped.length === 0 && (
+              <div className="text-center text-muted small py-3">
+                אין אחזקות להצגה
+              </div>
+            )}
           </div>
-        ))}
-        {grouped.length === 0 && (
-          <div className="text-center text-muted small py-3">
-            אין אחזקות להצגה
+
+          {/* Mobile cards */}
+          <div className="d-lg-none p-3">
+            {grouped.map((g) => (
+              <div key={g.label}>
+                <div
+                  className="d-flex align-items-center justify-content-between mb-2 mt-1"
+                  style={{
+                    borderBottom: "1px solid #dee2e6",
+                    paddingBottom: "0.25rem",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => toggleGroup(g.label)}
+                >
+                  <div className="d-flex align-items-center gap-1">
+                    {collapsedGroups.has(g.label) ? (
+                      <ChevronDown size={14} className="text-muted" />
+                    ) : (
+                      <ChevronUp size={14} className="text-muted" />
+                    )}
+                    <span className="fw-semibold small">{g.label}</span>
+                  </div>
+                  <span className="small text-muted">
+                    {formatCurrency(g.totalValue)}
+                  </span>
+                </div>
+                {!collapsedGroups.has(g.label) &&
+                  g.holdings.map((h) => (
+                    <HoldingCard key={`${h.symbol}-${h.term}-m`} holding={h} />
+                  ))}
+              </div>
+            ))}
+            {grouped.length === 0 && (
+              <div className="text-center text-muted small py-3">
+                אין אחזקות להצגה
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      </>}
+        </>
+      )}
     </div>
   );
 }
@@ -233,6 +285,7 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
   const [expanded, setExpanded] = useState(false);
   const isPositive = h.profitLoss >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
+  const ytdIsPositive = (h.ytdProfitLossILS ?? 0) >= 0;
   const hasTxs = h.transactions.length >= 1;
 
   return (
@@ -284,7 +337,16 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
         <span style={{ flex: 1 }} className="small">
           {formatCurrency(h.currentPriceILS)}
           {h.currency === "USD" && h.currentPriceRaw > 0 && (
-            <><br /><span className="text-muted" style={{ fontSize: "0.7rem" }} dir="ltr">${h.currentPriceRaw.toFixed(2)}</span></>
+            <>
+              <br />
+              <span
+                className="text-muted"
+                style={{ fontSize: "0.7rem" }}
+                dir="ltr"
+              >
+                ${h.currentPriceRaw.toFixed(2)}
+              </span>
+            </>
           )}
         </span>
         <span style={{ flex: 1 }} className="fw-bold small">
@@ -297,15 +359,17 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
           <bdi>
             {isPositive ? "+" : ""}
             {formatCurrency(Math.abs(h.profitLoss))}
-          </bdi>
-          {" "}
+          </bdi>{" "}
           <span className="small opacity-75">
-            <bdi>({isPositive ? "+" : "-"}{Math.abs(h.profitLossPercent).toFixed(2)}%)</bdi>
+            <bdi>
+              ({isPositive ? "+" : "-"}
+              {Math.abs(h.profitLossPercent).toFixed(2)}%)
+            </bdi>
           </span>
         </span>
         <span
           style={{
-            flex: 0.7,
+            flex: 1.2,
             color:
               h.ytdChangePercent === null
                 ? undefined
@@ -313,55 +377,124 @@ function HoldingRow({ holding: h }: { holding: StockHolding }) {
                   ? "#198754"
                   : "#dc3545",
           }}
-          className="fw-medium small"
-          dir="ltr"
+          className="fw-medium small text-nowrap"
         >
-          {h.ytdChangePercent === null
-            ? "—"
-            : `${h.ytdChangePercent >= 0 ? "+" : ""}${h.ytdChangePercent.toFixed(2)}%`}
+          {h.ytdChangePercent === null || h.ytdProfitLossILS === null ? (
+            "—"
+          ) : (
+            <>
+              <bdi>
+                {ytdIsPositive ? "+" : "-"}
+                {formatCurrency(Math.abs(h.ytdProfitLossILS))}
+              </bdi>{" "}
+              <span className="small opacity-75">
+                <bdi>
+                  ({ytdIsPositive ? "+" : "-"}
+                  {Math.abs(h.ytdChangePercent).toFixed(2)}%)
+                </bdi>
+              </span>
+            </>
+          )}
         </span>
       </div>
-      {expanded && h.transactions.map((tx, i) => {
-        const txCost = tx.pricePerUnitILS * tx.quantity;
-        const txCurrentValue = h.currentPriceILS * tx.quantity;
-        const txPnl = txCurrentValue - txCost;
-        const txPnlPercent = txCost > 0 ? (txPnl / txCost) * 100 : 0;
-        const txPositive = txPnl >= 0;
+      {expanded &&
+        h.transactions.map((tx, i) => {
+          const txCost = tx.pricePerUnitILS * tx.quantity;
+          const txCurrentValue = h.currentPriceILS * tx.quantity;
+          const txPnl = txCurrentValue - txCost;
+          const txPnlPercent = txCost > 0 ? (txPnl / txCost) * 100 : 0;
+          const txPositive = txPnl >= 0;
 
-        // Per-lot YTD: if purchased this year → return since purchase; otherwise → symbol's YTD
-        const txYear = tx.date.split("/")[2] ? 2000 + parseInt(tx.date.split("/")[2], 10) : 0;
-        const currentYear = new Date().getFullYear();
-        const txYtd = h.ytdChangePercent === null
-          ? null
-          : txYear >= currentYear
-            ? (tx.pricePerUnitILS > 0 ? (h.currentPriceILS - tx.pricePerUnitILS) / tx.pricePerUnitILS * 100 : null)
-            : h.ytdChangePercent;
+          // A pre-year purchase uses the January price; an in-year purchase uses
+          // its actual cost. Sales are reflected in the holding-level YTD gain.
+          const rawTxYear = tx.date.split("/")[2]
+            ? parseInt(tx.date.split("/")[2], 10)
+            : 0;
+          const txYear =
+            rawTxYear > 0 && rawTxYear < 100 ? 2000 + rawTxYear : rawTxYear;
+          const currentYear = new Date().getFullYear();
+          const txYtdBasis =
+            txYear >= currentYear ? tx.pricePerUnitILS : h.ytdStartPriceILS;
+          const txYtd =
+            tx.type === "קניה" &&
+            !h.priceIsFallback &&
+            txYtdBasis !== null &&
+            txYtdBasis > 0
+              ? ((h.currentPriceILS - txYtdBasis) / txYtdBasis) * 100
+              : null;
+          const txYtdProfit =
+            txYtd === null
+              ? null
+              : (h.currentPriceILS - txYtdBasis!) * tx.quantity;
+          const txYtdPositive = (txYtdProfit ?? 0) >= 0;
 
-        return (
-          <div key={i} className="tx-row" style={{ backgroundColor: "#f8f9fa", fontSize: "0.75rem", color: "#555" }}>
-            <span style={{ flex: 2, paddingRight: "1.25rem" }}>{tx.date}</span>
-            <span style={{ flex: 0.7 }} />
-            <span style={{ flex: 0.7 }}>{formatNumber(tx.quantity)}</span>
-            <span style={{ flex: 1 }}>{formatCurrency(tx.pricePerUnitILS)}</span>
-            <span style={{ flex: 1 }} />
-            <span style={{ flex: 1 }}>{formatCurrency(txCurrentValue)}</span>
-            <span style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }} className="fw-medium text-nowrap">
-              <bdi>{txPositive ? "+" : ""}{formatCurrency(Math.abs(txPnl))}</bdi>
-              {" "}
-              <span className="opacity-75">
-                <bdi>({txPositive ? "+" : "-"}{Math.abs(txPnlPercent).toFixed(2)}%)</bdi>
-              </span>
-            </span>
-            <span
-              style={{ flex: 0.7, color: txYtd === null ? undefined : txYtd >= 0 ? "#198754" : "#dc3545" }}
-              className="fw-medium"
-              dir="ltr"
+          return (
+            <div
+              key={i}
+              className="tx-row"
+              style={{
+                backgroundColor: "#f8f9fa",
+                fontSize: "0.75rem",
+                color: "#555",
+              }}
             >
-              {txYtd === null ? "" : `${txYtd >= 0 ? "+" : ""}${txYtd.toFixed(2)}%`}
-            </span>
-          </div>
-        );
-      })}
+              <span style={{ flex: 2, paddingRight: "1.25rem" }}>
+                {tx.date}
+              </span>
+              <span style={{ flex: 0.7 }} />
+              <span style={{ flex: 0.7 }}>{formatNumber(tx.quantity)}</span>
+              <span style={{ flex: 1 }}>
+                {formatCurrency(tx.pricePerUnitILS)}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span style={{ flex: 1 }}>{formatCurrency(txCurrentValue)}</span>
+              <span
+                style={{ flex: 1.2, color: txPositive ? "#198754" : "#dc3545" }}
+                className="fw-medium text-nowrap"
+              >
+                <bdi>
+                  {txPositive ? "+" : ""}
+                  {formatCurrency(Math.abs(txPnl))}
+                </bdi>{" "}
+                <span className="opacity-75">
+                  <bdi>
+                    ({txPositive ? "+" : "-"}
+                    {Math.abs(txPnlPercent).toFixed(2)}%)
+                  </bdi>
+                </span>
+              </span>
+              <span
+                style={{
+                  flex: 1.2,
+                  color:
+                    txYtd === null
+                      ? undefined
+                      : txYtd >= 0
+                        ? "#198754"
+                        : "#dc3545",
+                }}
+                className="fw-medium text-nowrap"
+              >
+                {txYtd === null || txYtdProfit === null ? (
+                  ""
+                ) : (
+                  <>
+                    <bdi>
+                      {txYtdPositive ? "+" : "-"}
+                      {formatCurrency(Math.abs(txYtdProfit))}
+                    </bdi>{" "}
+                    <span className="opacity-75">
+                      <bdi>
+                        ({txYtdPositive ? "+" : "-"}
+                        {Math.abs(txYtd).toFixed(2)}%)
+                      </bdi>
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+          );
+        })}
     </>
   );
 }
@@ -371,6 +504,8 @@ function LabelGroupHeader({
   totalValue,
   totalPnl,
   totalInvested,
+  totalYtdPnl,
+  totalYtdPercent,
   collapsed,
   onToggle,
   stale,
@@ -379,6 +514,8 @@ function LabelGroupHeader({
   totalValue: number;
   totalPnl: number;
   totalInvested: number;
+  totalYtdPnl: number | null;
+  totalYtdPercent: number | null;
   collapsed: boolean;
   onToggle: () => void;
   stale: boolean;
@@ -386,10 +523,11 @@ function LabelGroupHeader({
   const isPositive = totalPnl >= 0;
   const pnlColor = isPositive ? "#198754" : "#dc3545";
   const pnlPercent = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
+  const ytdIsPositive = (totalYtdPnl ?? 0) >= 0;
 
   return (
     <div
-      className="d-flex align-items-center px-2 py-1 gap-3"
+      className="stock-holdings-group-header d-flex align-items-center px-2 py-1 gap-3"
       style={{
         backgroundColor: "#f1f3f5",
         borderTop: "1px solid #dee2e6",
@@ -400,13 +538,25 @@ function LabelGroupHeader({
       }}
       onClick={onToggle}
     >
-      <span className="fw-semibold small d-flex align-items-center gap-1" style={{ flex: 2 }}>
-        {collapsed ? <ChevronDown size={13} className="text-muted" /> : <ChevronUp size={13} className="text-muted" />}
+      <span
+        className="fw-semibold small d-flex align-items-center gap-1"
+        style={{ flex: 2 }}
+      >
+        {collapsed ? (
+          <ChevronDown size={13} className="text-muted" />
+        ) : (
+          <ChevronUp size={13} className="text-muted" />
+        )}
         {label}
         {stale && (
           <span
             className="badge rounded-pill"
-            style={{ backgroundColor: "#fff3cd", color: "#856404", fontSize: "0.65rem", fontWeight: 500 }}
+            style={{
+              backgroundColor: "#fff3cd",
+              color: "#856404",
+              fontSize: "0.65rem",
+              fontWeight: 500,
+            }}
             title="לא עודכן ב-6 חודשים האחרונים"
           >
             לא עודכן
@@ -428,10 +578,39 @@ function LabelGroupHeader({
         {isPositive ? "+" : ""}
         {formatCurrency(Math.abs(totalPnl))}{" "}
         <span className="opacity-75">
-          ({isPositive ? "+" : "-"}{Math.abs(pnlPercent).toFixed(1)}%)
+          ({isPositive ? "+" : "-"}
+          {Math.abs(pnlPercent).toFixed(1)}%)
         </span>
       </span>
-      <span style={{ flex: 0.7 }} />
+      <span
+        className="fw-medium small text-nowrap"
+        style={{
+          flex: 1.2,
+          color:
+            totalYtdPnl === null
+              ? undefined
+              : ytdIsPositive
+                ? "#198754"
+                : "#dc3545",
+        }}
+      >
+        {totalYtdPnl === null || totalYtdPercent === null ? (
+          "—"
+        ) : (
+          <>
+            <bdi>
+              {ytdIsPositive ? "+" : "-"}
+              {formatCurrency(Math.abs(totalYtdPnl))}
+            </bdi>{" "}
+            <span className="opacity-75">
+              <bdi>
+                ({ytdIsPositive ? "+" : "-"}
+                {Math.abs(totalYtdPercent).toFixed(1)}%)
+              </bdi>
+            </span>
+          </>
+        )}
+      </span>
     </div>
   );
 }
@@ -485,7 +664,8 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
                 {h.symbol} ({h.displayName})
               </span>
               <span className="text-muted" style={{ fontSize: "0.7rem" }}>
-                {formatNumber(h.totalShares)} x {formatCurrency(h.currentPriceILS)}
+                {formatNumber(h.totalShares)} x{" "}
+                {formatCurrency(h.currentPriceILS)}
                 {h.currency === "USD" && h.currentPriceRaw > 0 && (
                   <span dir="ltr"> (${h.currentPriceRaw.toFixed(2)})</span>
                 )}
@@ -515,8 +695,15 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
                 }}
                 dir="ltr"
               >
-                YTD: {h.ytdChangePercent >= 0 ? "+" : ""}
-                {h.ytdChangePercent.toFixed(2)}%
+                YTD:{" "}
+                {h.ytdProfitLossILS !== null && (
+                  <>
+                    {h.ytdProfitLossILS >= 0 ? "+" : "-"}
+                    {formatCurrency(Math.abs(h.ytdProfitLossILS))}{" "}
+                  </>
+                )}
+                ({h.ytdChangePercent >= 0 ? "+" : "-"}
+                {Math.abs(h.ytdChangePercent).toFixed(2)}%)
               </div>
             )}
           </div>
@@ -532,7 +719,8 @@ function HoldingCard({ holding: h }: { holding: StockHolding }) {
               >
                 <span className="text-muted">{tx.date}</span>
                 <span>
-                  {formatNumber(tx.quantity)} x {formatCurrency(tx.pricePerUnitILS)}
+                  {formatNumber(tx.quantity)} x{" "}
+                  {formatCurrency(tx.pricePerUnitILS)}
                 </span>
                 <span className="fw-medium">
                   {formatCurrency(tx.pricePerUnitILS * tx.quantity)}

@@ -7,13 +7,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { SheetInfo, YearGroup } from "@/lib/types";
 import { stripYearSuffix } from "@/lib/utils";
-import {
-  renameSheetAction,
-  createVacation,
-  moveSheetAfterAction,
-} from "@/lib/actions";
+import { renameSheetAction, moveSheetAfterAction } from "@/lib/actions";
 import { useTheme } from "@/components/theme-provider";
 import { useEscapeKey } from "@/hooks/use-escape-key";
+import { CreateVacationForm } from "@/components/create-vacation-form";
 import {
   CalendarRange,
   Menu,
@@ -108,16 +105,18 @@ export function Sidebar({ yearGroups }: Props) {
 
   const [pinned, setPinned] = useLocalStorage("sidebar-pinned", false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [previousPathname, setPreviousPathname] = useState(pathname);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [showVacationForm, setShowVacationForm] = useState<number | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const pointerFocusRef = useRef(false);
 
-  // Close sidebar on navigation
-  useEffect(() => {
+  // Reset before rendering a new route so its mobile menu starts closed.
+  if (previousPathname !== pathname) {
+    setPreviousPathname(pathname);
     setMobileOpen(false);
-  }, [pathname]);
+  }
 
   const closeMobile = useCallback(() => {
     setMobileOpen(false);
@@ -144,15 +143,15 @@ export function Sidebar({ yearGroups }: Props) {
   const [vacationOrders, setVacationOrders] = useState<
     Record<number, SheetInfo[]>
   >(() => Object.fromEntries(yearGroups.map((g) => [g.year, g.vacations])));
-  useEffect(() => {
+  const [previousYearGroups, setPreviousYearGroups] = useState(yearGroups);
+  if (previousYearGroups !== yearGroups) {
+    setPreviousYearGroups(yearGroups);
     setVacationOrders(
       Object.fromEntries(yearGroups.map((g) => [g.year, g.vacations])),
     );
-  }, [yearGroups]);
+  }
   const dragItem = useRef<{ year: number; index: number } | null>(null);
   const dragOver = useRef<number | null>(null);
-  const [vacationName, setVacationName] = useState("");
-  const [vacationSubmitting, setVacationSubmitting] = useState(false);
 
   function togglePin() {
     setPinned(!pinned);
@@ -240,20 +239,10 @@ export function Sidebar({ yearGroups }: Props) {
     yearGroups.find((group) => group.year === currentYearSuffix) ??
     yearGroups[0];
 
-  async function handleCreateVacation(yearSuffix: number) {
-    const trimmed = vacationName.trim();
-    if (!trimmed) return;
-    setVacationSubmitting(true);
-    try {
-      await createVacation(trimmed, yearSuffix);
-      setVacationName("");
-      setShowVacationForm(null);
-      router.refresh();
-    } catch {
-      // silently fail
-    } finally {
-      setVacationSubmitting(false);
-    }
+  function handleVacationCreated(year: number) {
+    setShowVacationForm(null);
+    setExpandedYears((prev) => new Set([...prev, year]));
+    setExpandedSections((prev) => new Set([...prev, `${year}-vacations`]));
   }
 
   return (
@@ -489,7 +478,6 @@ export function Sidebar({ yearGroups }: Props) {
                         setShowVacationForm((prev) =>
                           prev === group.year ? null : group.year,
                         );
-                        setVacationName("");
                         // Also expand the vacations section
                         setExpandedSections((prev) => {
                           const next = new Set(prev);
@@ -573,19 +561,11 @@ export function Sidebar({ yearGroups }: Props) {
                     )}
                     {showVacationForm === group.year && (
                       <div className="sidebar-link px-2 py-1">
-                        <input
-                          className="form-control form-control-sm"
-                          style={{ fontSize: "0.85rem" }}
-                          placeholder="שם החופשה..."
-                          value={vacationName}
-                          onChange={(e) => setVacationName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter")
-                              handleCreateVacation(group.year);
-                            if (e.key === "Escape") setShowVacationForm(null);
-                          }}
-                          disabled={vacationSubmitting}
-                          autoFocus
+                        <CreateVacationForm
+                          initialYear={group.year}
+                          existingYears={yearGroups.map((g) => g.year)}
+                          onCreated={handleVacationCreated}
+                          onCancel={() => setShowVacationForm(null)}
                         />
                       </div>
                     )}
@@ -594,6 +574,11 @@ export function Sidebar({ yearGroups }: Props) {
               </div>
             );
           })}
+          {yearGroups.length === 0 && (
+            <div className="px-3 py-2">
+              <CreateVacationForm onCreated={handleVacationCreated} />
+            </div>
+          )}
         </nav>
 
         <div className="sidebar-footer">

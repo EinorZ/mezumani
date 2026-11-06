@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isCalCreditHeader, parseCalCreditRows } from "./excel-import";
+import {
+  formatImportedDate,
+  isCalCreditHeader,
+  parseCalCreditRows,
+} from "./excel-import";
 
 const headers = [
   "תאריך\r\nעסקה",
@@ -28,7 +32,16 @@ test("parses CAL/Visa rows and falls back to the transaction amount", () => {
   ];
 
   assert.deepEqual(parseCalCreditRows(rows, 2), [
-    { date: "27.08", expense: "אי.אם.פי.אם אלנבי", amount: 10 },
-    { date: "26.08", expense: "עסקה בחו״ל", amount: 37 },
+    { date: "27.08.2026", expense: "אי.אם.פי.אם אלנבי", amount: 10 },
+    { date: "26.08.2026", expense: "עסקה בחו״ל", amount: 37 },
   ]);
+});
+
+test("preserves payment years from every supported import date format", () => {
+  assert.equal(formatImportedDate("2026-11-06 00:00"), "06.11.2026");
+  assert.equal(formatImportedDate("6/11/2026"), "06.11.2026");
+  assert.equal(formatImportedDate("6.11.26"), "06.11.26");
+  assert.equal(formatImportedDate(new Date(2026, 10, 6)), "06.11.2026");
+  assert.equal(formatImportedDate("6/11"), "06.11");
+  assert.equal(formatImportedDate(""), "");
 });

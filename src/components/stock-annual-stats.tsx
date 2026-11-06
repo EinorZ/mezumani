@@ -1,112 +1,171 @@
 "use client";
 
-import type { PortfolioReturns } from "@/lib/types";
+import type { PortfolioPeriodPerformance, PortfolioReturns } from "@/lib/types";
+import { formatCurrency } from "@/lib/utils";
 
 interface Props {
   returns: PortfolioReturns;
+  ytdOverride: Pick<
+    PortfolioPeriodPerformance,
+    "profitLossILS" | "basisILS" | "returnPercent"
+  >;
 }
 
-function ReturnCell({ value, label }: { value: number | null; label: string }) {
-  if (value === null) return null;
-  const isPositive = value >= 0;
+function PerformanceValue({
+  performance,
+}: {
+  performance: PortfolioPeriodPerformance;
+}) {
+  if (performance.returnPercent === null) {
+    return (
+      <div className="text-center">
+        <div className="small fw-medium text-muted">{performance.label}</div>
+        <div className="small text-muted mt-1">אין מספיק נתונים</div>
+        {performance.missingSymbols.length > 0 && (
+          <div className="text-muted mt-1" style={{ fontSize: "0.7rem" }}>
+            חסר מחיר: {performance.missingSymbols.join(", ")}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const isPositive = (performance.profitLossILS ?? 0) >= 0;
+  const color = isPositive ? "#198754" : "#dc3545";
   return (
     <div className="text-center">
-      <div className="small fw-medium text-muted">{label}</div>
-      <div
-        className="fw-bold fs-6"
-        style={{ color: isPositive ? "#198754" : "#dc3545" }}
-        dir="ltr"
-      >
-        {value.toFixed(2)}%
+      <div className="small fw-medium text-muted">{performance.label}</div>
+      <div className="fw-bold fs-6 mt-1" style={{ color }} dir="ltr">
+        {isPositive ? "+" : ""}
+        {performance.returnPercent.toFixed(2)}%
+      </div>
+      <div className="small fw-semibold" style={{ color }} dir="ltr">
+        {isPositive ? "+" : ""}
+        {formatCurrency(performance.profitLossILS ?? 0)}
       </div>
     </div>
   );
 }
 
-export function StockAnnualStats({ returns }: Props) {
-  const { daily, mtd, ytd, periods, annual } = returns;
-  const hasTopRow = daily !== null || mtd !== null || ytd !== null;
-  const hasAnnual = annual.length > 0;
-  const hasPeriods = periods.some((p) => p.returnPercent !== null);
+export function StockAnnualStats({ returns, ytdOverride }: Props) {
+  const periodsByLabel = new Map(
+    returns.periods.map((period) => [
+      period.label,
+      period.label === "מתחילת השנה"
+        ? {
+            ...period,
+            ...ytdOverride,
+            missingSymbols:
+              ytdOverride.returnPercent === null ? period.missingSymbols : [],
+          }
+        : period,
+    ]),
+  );
+  const firstRow = ["7 ימים", "30 ימים", "90 ימים"]
+    .map((label) => periodsByLabel.get(label))
+    .filter((item): item is PortfolioPeriodPerformance => Boolean(item));
+  const secondRow = ["מתחילת החודש", "מתחילת השנה"]
+    .map((label) => periodsByLabel.get(label))
+    .filter((item): item is PortfolioPeriodPerformance => Boolean(item));
+  const currentYear = new Date().getFullYear();
+  const currentYearPerformance = periodsByLabel.get("מתחילת השנה");
+  const annual = [
+    ...(currentYearPerformance
+      ? [
+          {
+            ...currentYearPerformance,
+            year: currentYear,
+            isCurrentYear: true,
+          },
+        ]
+      : []),
+    ...returns.annual
+      .filter((item) => item.year !== currentYear)
+      .sort((a, b) => b.year - a.year)
+      .map((item) => ({ ...item, isCurrentYear: false })),
+  ];
 
-  if (!hasTopRow && !hasAnnual && !hasPeriods) return null;
-
-  // Annual: most recent on top, rows of 3
-  const sortedAnnual = [...annual].sort((a, b) => b.year - a.year);
-
-  // Build annual rows of up to 3 items each
-  const annualRows: { year: number; returnPercent: number | null }[][] = [];
-  for (let i = 0; i < sortedAnnual.length; i += 3) {
-    annualRows.push(sortedAnnual.slice(i, i + 3));
-  }
-
-  // Period rows: first 4 in a row, next 4 in a row
-  const periodRow1 = periods.slice(0, 4).filter((p) => p.returnPercent !== null);
-  const periodRow2 = periods.slice(4).filter((p) => p.returnPercent !== null);
+  if (returns.periods.length === 0 && annual.length === 0) return null;
 
   return (
     <div className="card rounded-3 p-4">
       <h6 className="fw-bold mb-4 text-center">תשואות</h6>
 
-      {/* Top row: Daily / MTD / YTD */}
-      {hasTopRow && (
-        <div className="row g-0 mb-4">
-          {[
-            { label: "מתחילת השנה", value: ytd },
-            { label: "מתחילת החודש", value: mtd },
-            { label: "יומית", value: daily },
-          ]
-            .filter((item) => item.value !== null)
-            .map((item) => (
-              <div key={item.label} className="col border p-2">
-                <ReturnCell value={item.value} label={item.label} />
-              </div>
-            ))}
-        </div>
-      )}
+      <div className="row g-0 mb-3">
+        {firstRow.map((item) => (
+          <div key={item.label} className="col border p-3">
+            <PerformanceValue performance={item} />
+          </div>
+        ))}
+      </div>
 
-      {/* Annual returns grid */}
-      {hasAnnual && (
-        <div className="mb-4">
-          {annualRows.map((row, ri) => (
-            <div key={ri} className="row g-0">
-              {row.map((item) => (
-                <div
-                  key={item.year}
-                  className="col border p-2"
-                >
-                  <ReturnCell
-                    value={item.returnPercent}
-                    label={`שנתית ${item.year}`}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="row g-0 mb-4">
+        {secondRow.map((item) => (
+          <div key={item.label} className="col border p-3">
+            <PerformanceValue performance={item} />
+          </div>
+        ))}
+      </div>
 
-      {/* Period returns grid */}
-      {hasPeriods && (
+      {annual.length > 0 && (
         <div>
-          {periodRow1.length > 0 && (
-            <div className="row g-0">
-              {periodRow1.map((item) => (
-                <div key={item.label} className="col border p-2">
-                  <ReturnCell value={item.returnPercent} label={item.label} />
+          <h6 className="fw-bold mb-3">ביצועים שנתיים</h6>
+          <div className="row g-2">
+            {annual.map((item) => {
+              const isPositive = (item.profitLossILS ?? 0) >= 0;
+              const color = isPositive ? "#198754" : "#dc3545";
+              return (
+                <div key={item.year} className="col-12 col-md-4">
+                  <div className="border rounded-3 p-2 h-100 stock-annual-card">
+                    <div className="d-flex align-items-center justify-content-center gap-2 px-1">
+                      <strong>{item.year}</strong>
+                      {item.isCurrentYear && (
+                        <span className="badge text-bg-secondary">בינתיים</span>
+                      )}
+                    </div>
+                    {item.returnPercent === null ? (
+                      <div className="border-top mt-2 pt-2">
+                        <PerformanceValue performance={item} />
+                      </div>
+                    ) : (
+                      <div className="row g-0 border-top mt-2 pt-2 text-center stock-annual-metrics">
+                        <div className="col-4 px-1">
+                          <div className="text-muted small">תשואה</div>
+                          <strong
+                            className="d-block"
+                            style={{ color }}
+                            dir="ltr"
+                          >
+                            {isPositive ? "+" : ""}
+                            {item.returnPercent.toFixed(2)}%
+                          </strong>
+                        </div>
+                        <div className="col-4 px-1 border-start border-end">
+                          <div className="text-muted small">
+                            כסף שהוכנס בשנה
+                          </div>
+                          <strong className="d-block" dir="ltr">
+                            {formatCurrency(item.purchasesILS ?? 0)}
+                          </strong>
+                        </div>
+                        <div className="col-4 px-1">
+                          <div className="text-muted small">רווח/הפסד</div>
+                          <strong
+                            className="d-block"
+                            style={{ color }}
+                            dir="ltr"
+                          >
+                            {isPositive ? "+" : ""}
+                            {formatCurrency(item.profitLossILS ?? 0)}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-          {periodRow2.length > 0 && (
-            <div className="row g-0">
-              {periodRow2.map((item) => (
-                <div key={item.label} className="col border p-2">
-                  <ReturnCell value={item.returnPercent} label={item.label} />
-                </div>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

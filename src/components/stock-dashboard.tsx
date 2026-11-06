@@ -17,8 +17,6 @@ import type {
   StockDashboardData,
   StockConfig,
   InvestmentTerm,
-  PortfolioHistoryPoint,
-  ChartRange,
   PortfolioReturns,
 } from "@/lib/types";
 
@@ -32,13 +30,10 @@ import { StockAnnualStats } from "@/components/stock-annual-stats";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { usePageRefresh } from "@/hooks/use-page-refresh";
 import { usePortfolioPerformance } from "@/hooks/use-portfolio-performance";
-import { computeViewYtd } from "@/lib/stock-utils";
 
 interface Props {
   data: StockDashboardData;
   config: StockConfig;
-  initialChartData?: PortfolioHistoryPoint[];
-  initialChartRange?: ChartRange;
   portfolioReturns?: PortfolioReturns;
   renderedAt: string;
 }
@@ -46,8 +41,6 @@ interface Props {
 export function StockDashboard({
   data,
   config,
-  initialChartData,
-  initialChartRange = "YTD",
   portfolioReturns,
   renderedAt,
 }: Props) {
@@ -72,17 +65,21 @@ export function StockDashboard({
   // Collapsible performance section
   const [perfOpen, setPerfOpen] = useState(false);
   const { refreshing, handleRefresh } = usePageRefresh("/stocks");
-  const { returns: perfReturns, loading: perfLoading } =
-    usePortfolioPerformance({
-      initialChartData: initialChartData ?? null,
-      initialRange: initialChartRange,
-      initialReturns: portfolioReturns ?? null,
-      term: viewTerm,
-      enabled: perfOpen,
-    });
+  const {
+    returns: perfReturns,
+    loading: perfLoading,
+    error: perfError,
+  } = usePortfolioPerformance({
+    initialReturns: portfolioReturns ?? null,
+    term: viewTerm,
+    enabled: perfOpen,
+  });
 
   const { totals, usdToIls, usdToIlsError, lastUpdated } = data;
   const isPositive = totals.totalProfitLoss >= 0;
+  const fallbackPriceCount = data.holdings.filter(
+    (holding) => holding.priceIsFallback,
+  ).length;
 
   function openPanel(defaults?: { symbol?: string; type?: "קניה" | "מכירה" }) {
     setPanelDefaults(defaults ?? {});
@@ -135,7 +132,9 @@ export function StockDashboard({
           totalProfitLoss: activeTermGroup.profitLoss,
           totalProfitLossPercent: activeTermGroup.profitLossPercent,
           estimatedCapitalGainsTax: 0,
-          ytdChangePercent: null,
+          ytdProfitLossILS: activeTermGroup.ytdProfitLossILS,
+          ytdBasisILS: activeTermGroup.ytdBasisILS,
+          ytdChangePercent: activeTermGroup.ytdChangePercent,
         };
   const viewHoldings =
     viewTerm === "all"
@@ -143,9 +142,8 @@ export function StockDashboard({
       : data.holdings.filter((h) => h.term === viewTerm);
   const viewIsPositive = viewTotals.totalProfitLoss >= 0;
 
-  // Compute YTD for the active view using shared utility
-  const { ytdProfitLossILS: viewYtdProfitLossILS, ytdDisplay: viewYtdDisplay } =
-    computeViewYtd(viewHoldings, viewTerm, viewTotals);
+  const viewYtdProfitLossILS = viewTotals.ytdProfitLossILS;
+  const viewYtdDisplay = viewTotals.ytdChangePercent;
   const viewYtdPositive = viewYtdProfitLossILS >= 0;
 
   return (
@@ -194,6 +192,12 @@ export function StockDashboard({
             עודכן לפני {minutesAgo < 1 ? "פחות מדקה" : `${minutesAgo} דקות`}
           </span>
         </div>
+        {fallbackPriceCount > 0 && (
+          <div className="alert alert-warning py-2 px-3 mt-3 mb-0 small">
+            לא ניתן היה לטעון מחיר עדכני עבור {fallbackPriceCount} ניירות. מוצג
+            עבורם מחיר העסקה האחרונה במקום מחיר אפס.
+          </div>
+        )}
       </div>
 
       {/* Term tabs */}
@@ -395,8 +399,22 @@ export function StockDashboard({
         </div>
         {perfOpen && (
           <div className="p-3">
-            {perfReturns && <StockAnnualStats returns={perfReturns} />}
-            {!perfLoading && !perfReturns && (
+            {perfReturns && (
+              <StockAnnualStats
+                returns={perfReturns}
+                ytdOverride={{
+                  profitLossILS: viewTotals.ytdProfitLossILS,
+                  basisILS: viewTotals.ytdBasisILS,
+                  returnPercent: viewTotals.ytdChangePercent,
+                }}
+              />
+            )}
+            {!perfLoading && perfError && (
+              <div className="alert alert-danger py-2 mb-0 small">
+                {perfError}
+              </div>
+            )}
+            {!perfLoading && !perfReturns && !perfError && (
               <div className="text-center text-muted small py-3">
                 אין נתונים להצגה
               </div>

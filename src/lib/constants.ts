@@ -61,6 +61,21 @@ export const SETTINGS_RANGE_YEAR_RETURN_YEARS = "P2:P100";
 export const SETTINGS_RANGE_YEAR_RETURN_PERCENTS = "Q2:Q100";
 
 export const STOCKS_SHEET_NAME = "מניות";
+export const ANNUAL_PERFORMANCE_SHEET_NAME = "ביצועים שנתיים";
+
+export const ANNUAL_PERFORMANCE_HEADERS = [
+  "שנה",
+  "טווח",
+  "סטטוס",
+  "שווי פתיחה",
+  "רכישות בשנה",
+  "מכירות בשנה",
+  "שווי סגירה",
+  "רווח/הפסד",
+  "תשואה %",
+  "טביעת עסקאות",
+  "תאריך חישוב",
+] as const;
 
 export const STOCK_SHEET_HEADERS = [
   "תאריך",

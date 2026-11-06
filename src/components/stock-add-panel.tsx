@@ -11,6 +11,7 @@ import {
   TERM_TEXT_COLORS,
 } from "@/lib/constants";
 import { useEscapeKey } from "@/hooks/use-escape-key";
+import { StockSelect } from "@/components/stock-select";
 
 interface Props {
   config: StockConfig;
@@ -203,25 +204,18 @@ export function StockAddPanel({ config, defaults, onClose }: Props) {
           {/* Stock */}
           <div>
             <label
+              id={`${formId}-symbol-label`}
               className="form-label small fw-medium mb-1"
               htmlFor={`${formId}-symbol`}
             >
               מניה *
             </label>
-            <select
+            <StockSelect
               id={`${formId}-symbol`}
-              className="form-select form-select-sm"
+              stocks={config.stocks}
               value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              required
-            >
-              <option value="">בחר מניה...</option>
-              {config.stocks.map((s) => (
-                <option key={s.symbol} value={s.symbol}>
-                  {s.displayName} ({s.symbol})
-                </option>
-              ))}
-            </select>
+              onChange={setSymbol}
+            />
             {selectedStock && (
               <div className="small text-muted mt-1">
                 מקור מחיר:{" "}

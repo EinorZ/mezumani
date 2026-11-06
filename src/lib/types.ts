@@ -233,6 +233,14 @@ export interface StockHolding {
   totalPurchaseFee: number;
   currentPriceILS: number;
   currentPriceRaw: number;
+  /** True when live providers failed and the last purchase price is displayed. */
+  priceIsFallback: boolean;
+  /** Price per share in ILS at the start of the current year. */
+  ytdStartPriceILS: number | null;
+  /** Opening value plus the actual cost of purchases made this year. */
+  ytdBasisILS: number | null;
+  /** Current value + YTD sale proceeds - YTD basis. */
+  ytdProfitLossILS: number | null;
   currentValueILS: number;
   profitLoss: number;
   profitLossPercent: number;
@@ -251,6 +259,9 @@ export interface StockTermGroup {
   profitLoss: number;
   profitLossPercent: number;
   allocationPercent: number;
+  ytdProfitLossILS: number;
+  ytdBasisILS: number;
+  ytdChangePercent: number | null;
   goals: StockGoal[];
 }
 
@@ -321,17 +332,42 @@ export interface PensionData {
 export type ChartRange = "1M" | "6M" | "YTD" | "1Y" | "Max";
 
 export interface PortfolioHistoryPoint {
-  date: string;       // YYYY-MM-DD
-  value: number;      // portfolio value in ILS
-  invested: number;   // total invested up to this date in ILS
+  date: string; // YYYY-MM-DD
+  value: number; // portfolio value in ILS
+  invested: number; // cumulative net contributions (buys minus sales) in ILS
+}
+
+export interface PortfolioPeriodPerformance {
+  label: string;
+  startDate: string;
+  endDate: string;
+  openingValueILS: number | null;
+  purchasesILS: number | null;
+  salesILS: number | null;
+  closingValueILS: number | null;
+  profitLossILS: number | null;
+  basisILS: number | null;
+  returnPercent: number | null;
+  missingSymbols: string[];
+}
+
+export type AnnualPerformanceStatus =
+  | "draft"
+  | "final"
+  | "needs_recalculation";
+
+export interface AnnualPortfolioPerformance
+  extends PortfolioPeriodPerformance {
+  year: number;
+  scope: InvestmentTerm | "all";
+  status: AnnualPerformanceStatus;
+  transactionFingerprint: string;
+  calculatedAt: string;
 }
 
 export interface PortfolioReturns {
-  daily: number | null;
-  mtd: number | null;
-  ytd: number | null;
-  periods: { label: string; returnPercent: number | null }[];
-  annual: { year: number; returnPercent: number | null }[];
+  periods: PortfolioPeriodPerformance[];
+  annual: AnnualPortfolioPerformance[];
 }
 
 export interface StockPortfolioTotals {
@@ -340,6 +376,8 @@ export interface StockPortfolioTotals {
   totalProfitLoss: number;
   totalProfitLossPercent: number;
   estimatedCapitalGainsTax: number;
+  ytdProfitLossILS: number;
+  ytdBasisILS: number;
   ytdChangePercent: number | null;
 }
 

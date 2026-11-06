@@ -64,7 +64,8 @@ import {
   setIrregularExpenseCategoriesForYear,
 } from "./google-sheets";
 import { HEBREW_MONTHS } from "./constants";
-import { OWNER_LABELS } from "./utils";
+import { OWNER_LABELS, classifySheet } from "./utils";
+import { withTransactionYear } from "./transaction-dates";
 import {
   ensurePensionSheet,
   getPensionFunds,
@@ -86,6 +87,7 @@ import type {
   ChartRange,
   PortfolioHistoryPoint,
   PortfolioReturns,
+  AnnualPortfolioPerformance,
   PensionOwner,
   PensionFundType,
 } from "./types";
@@ -135,7 +137,7 @@ function buildTransactionValues(data: TransactionInput, isVacation = false) {
   if (isVacation) {
     // Vacation columns: D=card, E=category (swapped vs monthly)
     return [
-      data.date,
+      data.date ? `'${data.date}` : "",
       data.expense,
       amount,
       data.card,
@@ -528,7 +530,11 @@ export async function addVacationTransaction(
 ): Promise<number> {
   assertSheetTitle(sheetTitle);
   assertTransactionInput(data);
-  return appendTransaction(sheetTitle, buildTransactionValues(data, true));
+  const dated = {
+    ...data,
+    date: withTransactionYear(data.date, new Date().getFullYear()),
+  };
+  return appendTransaction(sheetTitle, buildTransactionValues(dated, true));
 }
 
 export async function editVacationTransaction(
@@ -539,7 +545,11 @@ export async function editVacationTransaction(
   assertSheetTitle(sheetTitle);
   assertSheetRow(row);
   assertTransactionInput(data);
-  await updateTransaction(sheetTitle, row, buildTransactionValues(data, true));
+  const dated = {
+    ...data,
+    date: withTransactionYear(data.date, new Date().getFullYear()),
+  };
+  await updateTransaction(sheetTitle, row, buildTransactionValues(dated, true));
 }
 
 export const deleteVacationTransaction = deleteTransaction;
@@ -633,7 +643,15 @@ export async function bulkMoveToVacationAction(
       "must contain one transaction for every source row",
     );
   }
-  await batchImportTransactions(destTitle, transactions, true);
+  const sourceYear = classifySheet(0, sourceTitle).year;
+  if (sourceYear === undefined) {
+    throw new ActionInputError("sourceTitle", "must include the payment year");
+  }
+  const datedTransactions = transactions.map((tx) => ({
+    ...tx,
+    date: withTransactionYear(tx.date, sourceYear),
+  }));
+  await batchImportTransactions(destTitle, datedTransactions, true);
   await Promise.all(rows.map((row) => clearTransaction(sourceTitle, row)));
 }
 
@@ -643,11 +661,24 @@ export async function addTransactionsBatch(
   sheetTitle: string,
   transactions: TransactionInput[],
   isVacation = false,
+  sourceTitle?: string,
 ): Promise<number> {
   assertSheetTitle(sheetTitle);
   assertTransactionInputs(transactions);
   assertBoolean(isVacation, "isVacation");
-  return batchImportTransactions(sheetTitle, transactions, isVacation);
+  if (sourceTitle !== undefined) assertSheetTitle(sourceTitle, "sourceTitle");
+  const sourceYear =
+    sourceTitle === undefined ? undefined : classifySheet(0, sourceTitle).year;
+  if (isVacation && sourceTitle !== undefined && sourceYear === undefined) {
+    throw new ActionInputError("sourceTitle", "must include the payment year");
+  }
+  const datedTransactions = isVacation
+    ? transactions.map((tx) => ({
+        ...tx,
+        date: withTransactionYear(tx.date, sourceYear ?? new Date().getFullYear()),
+      }))
+    : transactions;
+  return batchImportTransactions(sheetTitle, datedTransactions, isVacation);
 }
 
 // ---- Debounced revalidation (called by client) ----
@@ -961,74 +992,39 @@ export async function getPortfolioReturnsAction(
   term?: InvestmentTerm,
 ): Promise<PortfolioReturns> {
   if (term !== undefined) assertEnum(term, "term", INVESTMENT_TERMS);
-  const { getPortfolioHistory, computePortfolioReturns } =
+  const { getPortfolioReturns } = await import("./stock-dashboard");
+  return getPortfolioReturns(term);
+}
+
+export async function finalizeAnnualPerformanceAction(
+  year: number,
+  term?: InvestmentTerm,
+): Promise<AnnualPortfolioPerformance> {
+  assertInteger(year, "year");
+  if (year < 2000 || year >= new Date().getFullYear()) {
+    throw new ActionInputError("year", "אפשר לסגור רק שנה שהסתיימה");
+  }
+  if (term !== undefined) assertEnum(term, "term", INVESTMENT_TERMS);
+  const { calculateAnnualPortfolioPerformance } =
     await import("./stock-dashboard");
-  const { getStockConfig, saveYearReturns } = await import("./google-sheets");
-
-  const config = await getStockConfig();
-  const { savedYearReturns } = config;
-
-  // Optimal fetch start: cover rolling 3yr periods AND all uncached complete years.
-  // If all years up to (currentYear-1) are cached, only fetch 3yr of data.
-  const currentYear = new Date().getFullYear();
-  const threeYearsAgoDate = new Date();
-  threeYearsAgoDate.setFullYear(threeYearsAgoDate.getFullYear() - 3);
-  const threeYearsAgo = threeYearsAgoDate.toISOString().split("T")[0];
-
-  // Find the earliest complete year not yet cached
-  let earliestUncachedYear: number | null = null;
-  // We look from a reasonable minimum (2015) to avoid fetching too far back
-  for (let y = 2015; y < currentYear; y++) {
-    if (!(y in savedYearReturns)) {
-      earliestUncachedYear = y;
-      break;
-    }
+  const { saveAnnualPerformanceRecord } = await import("./google-sheets");
+  const record = await calculateAnnualPortfolioPerformance(year, term);
+  if (
+    record.returnPercent === null ||
+    record.profitLossILS === null ||
+    record.missingSymbols.length > 0
+  ) {
+    const missing = record.missingSymbols.join(", ");
+    throw new ActionInputError(
+      "year",
+      missing
+        ? `לא ניתן לסגור את ${year}: חסרים מחירים עבור ${missing}`
+        : `לא ניתן לסגור את ${year}: אין מספיק נתונים`,
+    );
   }
-
-  // Start date: earlier of (3yr ago) and (Jan 1 of earliest uncached year)
-  let startDate = threeYearsAgo;
-  if (earliestUncachedYear !== null) {
-    const uncachedStart = `${earliestUncachedYear}-01-01`;
-    if (uncachedStart < startDate) startDate = uncachedStart;
-  }
-
-  const history = await getPortfolioHistory("Max", {
-    downsample: false,
-    term,
-    startDateOverride: startDate,
-  });
-
-  const returns = computePortfolioReturns(history, savedYearReturns);
-
-  // Save newly computed complete years — only if we have high-confidence data.
-  // A year qualifies when:
-  // 1. Not already cached (never overwrite existing)
-  // 2. Computed return is non-null
-  // 3. History has ≥200 points within that year (nearly all trading days)
-  // 4. History covers Jan 1–15 AND Nov 1–Dec 31 of that year (full year fetched)
-  const newEntries: Record<number, number> = {};
-  for (const { year, returnPercent } of returns.annual) {
-    if (returnPercent === null) continue;
-    if (year in savedYearReturns) continue; // never overwrite
-
-    // Count points and check coverage
-    const yearPoints = history.filter((p) => p.date.startsWith(`${year}-`));
-    if (yearPoints.length < 200) continue;
-
-    const first = yearPoints[0].date;
-    const last = yearPoints[yearPoints.length - 1].date;
-    const coversStart = first <= `${year}-01-15`;
-    const coversEnd = last >= `${year}-11-01`;
-    if (!coversStart || !coversEnd) continue;
-
-    newEntries[year] = returnPercent;
-  }
-
-  if (Object.keys(newEntries).length > 0) {
-    await saveYearReturns({ ...savedYearReturns, ...newEntries });
-  }
-
-  return returns;
+  await saveAnnualPerformanceRecord(record);
+  revalidatePath("/stocks");
+  return record;
 }
 
 // ──────────────────────────────────────────

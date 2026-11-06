@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { useYearlyGross } from "@/hooks/use-yearly-gross";
-import { calcYasafTax } from "@/lib/israeli-tax";
+import { calcAnnualYasafTax } from "@/lib/israeli-tax";
 import { formatCurrency } from "@/lib/utils";
 
 type YearlyGrossState = ReturnType<typeof useYearlyGross>;
@@ -50,9 +50,8 @@ export function CalcYasafForm({
       (sum, item) => sum + (parseFloat(item.amount) || 0),
       0,
     );
-    const tax = calcYasafTax({
-      baseTaxableIncome: grossState.yearlyGross,
-      employmentIncome: 0,
+    const tax = calcAnnualYasafTax({
+      employmentIncome: grossState.yearlyGross,
       capitalIncome: capital,
     });
 
@@ -129,7 +128,7 @@ export function CalcYasafForm({
       </div>
 
       <div className="border rounded p-3 bg-light">
-        <h6 className="mb-3">אומדן מס יסף נוסף לשים בצד</h6>
+        <h6 className="mb-3">אומדן מס יסף שנתי לשים בצד</h6>
         <table className="table table-sm mb-0" style={{ fontSize: "0.85rem" }}>
           <tbody>
             <tr>
